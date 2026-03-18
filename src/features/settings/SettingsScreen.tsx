@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
   getProducts, createProduct, patchProduct, deleteProduct,
   getDevelopers, createDeveloper, patchDeveloper, deleteDeveloper,
-  getImportHistory,
+  getImportHistory, getConfig, patchConfig,
 } from '@/api/client'
-import type { Product, Developer, ImportSnapshot } from '@/domain/types'
+import type { Product, Developer, ImportSnapshot, AppConfig } from '@/domain/types'
+import { EFFORT_UNIT_LABELS, type EffortUnit } from '@/domain/enums'
 
 const COLORS = [
   '#6366f1', '#f59e0b', '#10b981', '#3b82f6',
@@ -16,7 +17,8 @@ export default function SettingsScreen() {
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       <h1 className="text-2xl font-semibold">Configuración</h1>
-      <ExportSection />
+      <AppConfigSection />
+      <BackupSection />
       <ProductsSection />
       <DevelopersSection />
       <ImportHistorySection />
@@ -24,27 +26,127 @@ export default function SettingsScreen() {
   )
 }
 
-// ─── Export ───────────────────────────────────────────────────────────────────
+// ─── App Config ───────────────────────────────────────────────────────────────
 
-function ExportSection() {
-  function handleExport() {
-    window.location.href = '/api/exports/json'
+function AppConfigSection() {
+  const [config, setConfig] = useState<AppConfig | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => { getConfig().then(setConfig) }, [])
+
+  async function handleChange(unit: EffortUnit) {
+    if (!config) return
+    setSaving(true)
+    setSaved(false)
+    try {
+      const updated = await patchConfig({ defaultEffortUnit: unit })
+      setConfig(updated)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <section>
-      <h2 className="text-lg font-medium mb-3">Backup</h2>
+      <h2 className="text-lg font-medium mb-3">General</h2>
       <div className="border rounded-lg bg-white px-4 py-3 flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium">Exportar JSON completo</p>
-          <p className="text-xs text-slate-500 mt-0.5">Descarga todos los datos (productos, items, developers, sprints, milestones).</p>
+          <p className="text-sm font-medium">Unidad de esfuerzo por defecto</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Usada en sprints y métricas de capacidad. Los items pueden tener múltiples valores cargados.
+          </p>
         </div>
-        <button
-          onClick={handleExport}
-          className="text-sm bg-slate-800 text-white px-4 py-2 rounded hover:bg-slate-700"
-        >
-          Descargar backup
-        </button>
+        <div className="flex items-center gap-3">
+          {saved && <span className="text-xs text-green-600">Guardado</span>}
+          <select
+            value={config?.defaultEffortUnit ?? 'story-points'}
+            onChange={(e) => handleChange(e.target.value as EffortUnit)}
+            disabled={saving || !config}
+            className="border rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
+          >
+            {(Object.entries(EFFORT_UNIT_LABELS) as [EffortUnit, string][]).map(([k, v]) => (
+              <option key={k} value={k}>{v}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// ─── Backup / Restore ────────────────────────────────────────────────────────
+
+function BackupSection() {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [restoring, setRestoring] = useState(false)
+  const [restoreMsg, setRestoreMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function handleRestore(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!confirm(`¿Restaurar desde "${file.name}"? Esto reemplazará TODOS los datos actuales.`)) {
+      if (fileRef.current) fileRef.current.value = ''
+      return
+    }
+    setRestoring(true)
+    setRestoreMsg(null)
+    try {
+      const text = await file.text()
+      const res = await fetch('/api/imports/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: text,
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }))
+        throw new Error(err.error ?? res.statusText)
+      }
+      const data = await res.json()
+      setRestoreMsg({ ok: true, text: `Restaurado: ${data.products} productos, ${data.backlogItems} items, ${data.developers} developers.` })
+    } catch (err) {
+      setRestoreMsg({ ok: false, text: String(err) })
+    } finally {
+      setRestoring(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  return (
+    <section>
+      <h2 className="text-lg font-medium mb-3">Backup y restauración</h2>
+      <div className="border rounded-lg bg-white divide-y">
+        <div className="px-4 py-3 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium">Exportar JSON completo</p>
+            <p className="text-xs text-slate-500 mt-0.5">Descarga todos los datos: productos, items, developers, sprints, milestones.</p>
+          </div>
+          <button
+            onClick={() => { window.location.href = '/api/exports/json' }}
+            className="text-sm bg-slate-800 text-white px-4 py-2 rounded hover:bg-slate-700 shrink-0"
+          >
+            Descargar backup
+          </button>
+        </div>
+        <div className="px-4 py-3 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium">Restaurar desde backup</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Carga un archivo JSON exportado previamente. <span className="text-red-500">Reemplaza todos los datos actuales.</span>
+            </p>
+            {restoreMsg && (
+              <p className={`text-xs mt-1 ${restoreMsg.ok ? 'text-green-600' : 'text-red-600'}`}>
+                {restoreMsg.text}
+              </p>
+            )}
+          </div>
+          <label className={`text-sm border px-4 py-2 rounded cursor-pointer shrink-0 ${restoring ? 'opacity-50 pointer-events-none' : 'hover:bg-slate-50'}`}>
+            {restoring ? 'Restaurando...' : 'Cargar backup JSON'}
+            <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={handleRestore} />
+          </label>
+        </div>
       </div>
     </section>
   )

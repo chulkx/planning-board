@@ -3,6 +3,7 @@ import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -193,10 +194,7 @@ interface ColumnProps {
 }
 
 function KanbanColumn({ id, label, items, onEditItem, activeId }: ColumnProps) {
-  const { setNodeRef, isOver } = useSortable({
-    id,
-    data: { type: 'column' },
-  })
+  const { setNodeRef, isOver } = useDroppable({ id })
 
   return (
     <div
