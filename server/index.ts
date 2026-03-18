@@ -1,0 +1,46 @@
+import express from 'express'
+import cors from 'cors'
+import db from './db.js'
+import { backlogRouter } from './routes/backlog.js'
+import { importsRouter } from './routes/imports.js'
+import { productsRouter } from './routes/products.js'
+import { developersRouter } from './routes/developers.js'
+import { sprintsRouter } from './routes/sprints.js'
+import { milestonesRouter } from './routes/milestones.js'
+import { configRouter } from './routes/config.js'
+
+const app = express()
+const PORT = 3002
+
+app.use(cors())
+app.use(express.json({ limit: '10mb' }))
+
+app.use('/api/backlog-items', backlogRouter)
+app.use('/api/imports', importsRouter)
+app.use('/api/products', productsRouter)
+app.use('/api/developers', developersRouter)
+app.use('/api/sprints', sprintsRouter)
+app.use('/api/milestones', milestonesRouter)
+app.use('/api/config', configRouter)
+
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok' })
+})
+
+app.get('/api/exports/json', (_req, res) => {
+  const data = {
+    exportedAt: new Date().toISOString(),
+    products: db.prepare('SELECT * FROM products').all(),
+    developers: db.prepare('SELECT * FROM developers').all(),
+    sprints: db.prepare('SELECT * FROM sprints').all(),
+    milestones: db.prepare('SELECT * FROM milestones').all(),
+    backlogItems: db.prepare('SELECT * FROM backlog_items').all(),
+    config: db.prepare('SELECT * FROM app_config WHERE id = ?').get('singleton'),
+  }
+  res.setHeader('Content-Disposition', `attachment; filename="planning-board-backup-${new Date().toISOString().slice(0, 10)}.json"`)
+  res.json(data)
+})
+
+app.listen(PORT, () => {
+  console.log(`Server running at http://localhost:${PORT}`)
+})

@@ -1,0 +1,153 @@
+import type {
+  Priority,
+  BacklogStatus,
+  SprintStatus,
+  MilestoneStatus,
+  ItemType,
+  EffortUnit,
+} from './enums'
+
+export interface BacklogItem {
+  id: string
+  externalId: string | null
+  title: string
+  description: string | null
+  itemType: ItemType
+  productId: string | null
+  feature: string | null
+  status: BacklogStatus
+  priority: Priority
+  assigneeIds: string[]
+  sprintId: string | null
+  milestoneId: string | null
+  categories: string[]
+  service: string | null
+  version: string | null
+  client: string | null
+  startDate: string | null
+  dueDate: string | null
+  reportDate: string | null
+  effortStoryPoints: number | null
+  effortQuotedHours: number | null
+  effortEstimatedHours: number | null
+  effortActualHours: number | null
+  notes: string | null
+  prodChanges: string | null
+  relatedItemId: string | null
+  relatedItemTitle: string | null
+  helpDeskId: string | null
+  helpDeskTitle: string | null
+  createdBy: string | null
+  createdAt: string | null
+  updatedAt: string | null
+  importedAt: string
+  importHash: string | null
+  manualOverrides: string[]
+  rawFields: Record<string, string>
+}
+
+export interface Product {
+  id: string
+  name: string
+  color: string
+  boardColumns: BacklogStatus[]
+  createdAt: string
+}
+
+export interface Developer {
+  id: string
+  name: string
+  capacityPerSprint: number
+  createdAt: string
+}
+
+export interface Sprint {
+  id: string
+  name: string
+  startDate: string | null
+  endDate: string | null
+  productIds: string[]
+  status: SprintStatus
+  effortUnit: EffortUnit
+  createdAt: string
+}
+
+export interface Milestone {
+  id: string
+  name: string
+  targetDate: string | null
+  productIds: string[]
+  status: MilestoneStatus
+  createdAt: string
+}
+
+export interface CsvMappingProfile {
+  id: string
+  name: string
+  mappings: Record<string, string>
+  encoding: string
+}
+
+export interface AppConfig {
+  id: 'singleton'
+  defaultEffortUnit: EffortUnit
+  csvMappingProfiles: CsvMappingProfile[]
+  importHashFields: string[]
+}
+
+export interface ImportSnapshot {
+  id: string
+  importedAt: string
+  filename: string
+  totalRows: number
+  createdCount: number
+  updatedCount: number
+  skippedCount: number
+  errors: ImportError[]
+}
+
+export interface ImportError {
+  row: number
+  field?: string
+  message: string
+}
+
+// --- API request/response shapes ---
+
+export interface ImportPreviewRequest {
+  csvContent: string
+  mappings: Record<string, string>
+  encoding?: string
+}
+
+export interface ImportPreviewResult {
+  rows: Partial<BacklogItem>[]
+  errors: ImportError[]
+  detectedColumns: string[]
+  suggestedMappings: Record<string, string>
+}
+
+export interface ImportCommitRequest {
+  csvContent: string
+  mappings: Record<string, string>
+  encoding?: string
+  profileName?: string
+}
+
+export interface ImportCommitResult {
+  created: number
+  updated: number
+  skipped: number
+  errors: ImportError[]
+  snapshotId: string
+}
+
+export interface BacklogFilters {
+  productId?: string
+  status?: BacklogStatus
+  priority?: Priority
+  assigneeId?: string
+  sprintId?: string
+  milestoneId?: string
+  search?: string
+}

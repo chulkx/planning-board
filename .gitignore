@@ -1,0 +1,14 @@
+node_modules
+
+# SQLite database (datos locales, no versionar)
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Build output
+dist/
+
+# Env
+.env
+.env.local
