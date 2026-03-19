@@ -15,19 +15,19 @@ const PORT = 3002
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))
 
-app.use('/api/backlog-items', backlogRouter)
-app.use('/api/imports', importsRouter)
-app.use('/api/products', productsRouter)
-app.use('/api/developers', developersRouter)
-app.use('/api/sprints', sprintsRouter)
-app.use('/api/milestones', milestonesRouter)
-app.use('/api/config', configRouter)
+app.use('/api/v1/backlog-items', backlogRouter)
+app.use('/api/v1/imports', importsRouter)
+app.use('/api/v1/products', productsRouter)
+app.use('/api/v1/developers', developersRouter)
+app.use('/api/v1/sprints', sprintsRouter)
+app.use('/api/v1/milestones', milestonesRouter)
+app.use('/api/v1/config', configRouter)
 
-app.get('/api/health', (_req, res) => {
+app.get('/api/v1/health', (_req, res) => {
   res.json({ status: 'ok' })
 })
 
-app.get('/api/exports/json', (_req, res) => {
+app.get('/api/v1/exports/json', (_req, res) => {
   const data = {
     exportedAt: new Date().toISOString(),
     products: db.prepare('SELECT * FROM products').all(),

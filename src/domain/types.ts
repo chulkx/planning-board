@@ -44,6 +44,7 @@ export interface BacklogItem {
   importHash: string | null
   manualOverrides: string[]
   rawFields: Record<string, string>
+  sortOrder: number | null
 }
 
 export interface Product {

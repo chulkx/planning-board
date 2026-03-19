@@ -1,4 +1,4 @@
-const BASE = '/api'
+const BASE = '/api/v1'
 
 export async function request(path: string, init?: RequestInit): Promise<void> {
   const res = await fetch(`${BASE}${path}`, {

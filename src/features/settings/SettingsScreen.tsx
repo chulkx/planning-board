@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
@@ -7,7 +7,6 @@ import {
   getImportHistory, getConfig, patchConfig,
 } from '@/api/client'
 import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
-import type { AppConfig } from '@/domain/types'
 import { EFFORT_UNIT_LABELS, type EffortUnit } from '@/domain/enums'
 
 const COLORS = [
@@ -100,7 +99,7 @@ function BackupSection() {
     setRestoreMsg(null)
     try {
       const text = await file.text()
-      const res = await fetch('/api/imports/restore', {
+      const res = await fetch('/api/v1/imports/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: text,
@@ -132,7 +131,7 @@ function BackupSection() {
             <p className="text-xs text-slate-500 mt-0.5">Descarga todos los datos: productos, items, developers, sprints, milestones.</p>
           </div>
           <button
-            onClick={() => { window.location.href = '/api/exports/json' }}
+            onClick={() => { window.location.href = '/api/v1/exports/json' }}
             className="text-sm bg-slate-800 text-white px-4 py-2 rounded hover:bg-slate-700 shrink-0"
           >
             Descargar backup

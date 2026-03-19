@@ -3,13 +3,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getSprints, createSprint, getBacklogItems, getDevelopers, patchBacklogItem, getProducts } from '@/api/client'
 import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
 import { request } from '@/api/internal'
-import type { Sprint, BacklogItem } from '@/domain/types'
+import type { BacklogItem } from '@/domain/types'
 import { PRIORITY_CONFIG, STATUS_CONFIG } from '@/domain/enums'
 
 export default function SprintPlanningScreen() {
   const queryClient = useQueryClient()
   const { data: sprints = [], isLoading: l1 }   = useQuery({ queryKey: QUERY_KEYS.sprints,      queryFn: getSprints,      staleTime: STALE_TIMES.sprints })
-  const { data: items = [], isLoading: l2 }     = useQuery({ queryKey: QUERY_KEYS.backlogItems, queryFn: getBacklogItems, staleTime: STALE_TIMES.backlogItems })
+  const { data: items = [], isLoading: l2 }     = useQuery({ queryKey: QUERY_KEYS.backlogItems, queryFn: () => getBacklogItems(), staleTime: STALE_TIMES.backlogItems })
   const { data: developers = [] }               = useQuery({ queryKey: QUERY_KEYS.developers,   queryFn: getDevelopers,   staleTime: STALE_TIMES.developers })
   const { data: products = [] }                 = useQuery({ queryKey: QUERY_KEYS.products,     queryFn: getProducts,     staleTime: STALE_TIMES.products })
   const loading = l1 || l2

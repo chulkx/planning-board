@@ -11,7 +11,7 @@ import type {
   AppConfig,
 } from '@/domain/types'
 
-const BASE = '/api'
+const BASE = '/api/v1'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -36,6 +36,10 @@ export function getBacklogItems(filters: BacklogFilters = {}): Promise<BacklogIt
 
 export function patchBacklogItem(id: string, updates: Partial<BacklogItem>): Promise<BacklogItem> {
   return request(`/backlog-items/${id}`, { method: 'PATCH', body: JSON.stringify(updates) })
+}
+
+export function reorderBacklogItems(ids: string[]): Promise<void> {
+  return request('/backlog-items/reorder', { method: 'PATCH', body: JSON.stringify({ ids }) })
 }
 
 // --- Imports ---

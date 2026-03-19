@@ -3,13 +3,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getMilestones, createMilestone, getBacklogItems, patchBacklogItem, getProducts } from '@/api/client'
 import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
 import { request } from '@/api/internal'
-import type { Milestone } from '@/domain/types'
+import type { BacklogItem } from '@/domain/types'
 import { STATUS_CONFIG } from '@/domain/enums'
 
 export default function MilestonesScreen() {
   const queryClient = useQueryClient()
   const { data: milestones = [], isLoading: l1 }= useQuery({ queryKey: QUERY_KEYS.milestones,   queryFn: getMilestones,   staleTime: STALE_TIMES.milestones })
-  const { data: items = [], isLoading: l2 }     = useQuery({ queryKey: QUERY_KEYS.backlogItems, queryFn: getBacklogItems, staleTime: STALE_TIMES.backlogItems })
+  const { data: items = [], isLoading: l2 }     = useQuery({ queryKey: QUERY_KEYS.backlogItems, queryFn: () => getBacklogItems(), staleTime: STALE_TIMES.backlogItems })
   const { data: products = [] }                 = useQuery({ queryKey: QUERY_KEYS.products,     queryFn: getProducts,     staleTime: STALE_TIMES.products })
   const loading = l1 || l2
 

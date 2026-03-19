@@ -43,6 +43,7 @@ function deserializeItem(row: Record<string, unknown>): BacklogItem {
     importHash: row.import_hash as string | null,
     manualOverrides: JSON.parse(row.manual_overrides as string ?? '[]'),
     rawFields: JSON.parse(row.raw_fields as string ?? '{}'),
+    sortOrder: row.sort_order as number | null,
   }
 }
 
@@ -64,10 +65,24 @@ backlogRouter.get('/', (req, res) => {
     params.push(`%${search}%`, `%${search}%`)
   }
 
-  query += " ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, title"
+  query += ' ORDER BY COALESCE(sort_order, 999999), title'
 
   const rows = db.prepare(query).all(...params) as Record<string, unknown>[]
   res.json(rows.map(deserializeItem))
+})
+
+// Must be registered before /:id so Express doesn't treat 'reorder' as an id param
+backlogRouter.patch('/reorder', (req, res) => {
+  const { ids } = req.body as { ids?: string[] }
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: 'ids array is required' })
+    return
+  }
+  const update = db.prepare('UPDATE backlog_items SET sort_order = ? WHERE id = ?')
+  db.transaction(() => {
+    ids.forEach((id, index) => update.run(index, id))
+  })()
+  res.status(204).end()
 })
 
 backlogRouter.get('/:id', (req, res) => {

@@ -2,7 +2,7 @@
 // These are TypeScript unions — values with no UI logic use plain strings in the DB.
 
 export type Priority = 'critical' | 'high' | 'medium' | 'low'
-export type BacklogStatus = 'not-started' | 'in-progress' | 'review' | 'done' | 'cancelled'
+export type BacklogStatus = 'not-started' | 'in-progress' | 'blocked' | 'review' | 'done' | 'cancelled'
 export type SprintStatus = 'planned' | 'active' | 'completed'
 export type MilestoneStatus = 'planned' | 'active' | 'completed'
 export type ItemType = 'bug' | 'feature' | 'task'
@@ -56,6 +56,8 @@ export const CSV_STATUS_MAP: Record<string, BacklogStatus> = {
   'cancelado': 'cancelled',
   'cancelled': 'cancelled',
   'canceled': 'cancelled',
+  'bloqueado': 'blocked',
+  'blocked': 'blocked',
 }
 
 /** Maps raw CSV item type values to internal ItemType enum */
@@ -83,6 +85,7 @@ export const PRIORITY_CONFIG: Record<Priority, { label: string; color: string; b
 export const STATUS_CONFIG: Record<BacklogStatus, { label: string; color: string; bgColor: string }> = {
   'not-started': { label: 'No iniciado', color: 'text-status-neutral-fg',  bgColor: 'bg-status-neutral' },
   'in-progress': { label: 'En curso',    color: 'text-status-progress-fg', bgColor: 'bg-status-progress' },
+  'blocked':     { label: 'Bloqueado',   color: 'text-status-high-fg',     bgColor: 'bg-status-high' },
   'review':      { label: 'Revisión',    color: 'text-status-review-fg',   bgColor: 'bg-status-review' },
   'done':        { label: 'Completado',  color: 'text-status-done-fg',     bgColor: 'bg-status-done' },
   'cancelled':   { label: 'Cancelado',   color: 'text-status-neutral-fg',  bgColor: 'bg-status-neutral' },
@@ -113,9 +116,10 @@ export const PRIORITY_ORDER: Record<Priority, number> = {
 export const STATUS_ORDER: Record<BacklogStatus, number> = {
   'not-started': 0,
   'in-progress': 1,
-  'review': 2,
-  'done': 3,
-  'cancelled': 4,
+  'blocked':     2,
+  'review':      3,
+  'done':        4,
+  'cancelled':   5,
 }
 
 export function normalizePriority(raw: string): Priority {
