@@ -77,6 +77,19 @@ export default function BoardScreen() {
 
   const hasFilters = !!(filterSearch || filterPriority || filterAssignee || filterSprint)
 
+  // Epic progress: for each epic id, count total children and done children
+  const epicProgress = useMemo(() => {
+    const map: Record<string, { done: number; total: number }> = {}
+    for (const item of items) {
+      if (item.parentId) {
+        if (!map[item.parentId]) map[item.parentId] = { done: 0, total: 0 }
+        map[item.parentId].total++
+        if (item.status === 'done') map[item.parentId].done++
+      }
+    }
+    return map
+  }, [items])
+
   const byColumn = useMemo(() => {
     const map: Record<string, BacklogItem[]> = {}
     for (const col of columns) map[col.name] = []
@@ -240,6 +253,7 @@ export default function BoardScreen() {
                 label={cfg.label}
                 items={colItems}
                 wipLimit={col.wipLimit}
+                epicProgress={epicProgress}
                 onEditItem={setEditItem}
                 activeId={activeItem?.id ?? null}
               />
@@ -248,7 +262,7 @@ export default function BoardScreen() {
         </div>
 
         <DragOverlay>
-          {activeItem && <KanbanCard item={activeItem} isDragging />}
+          {activeItem && <KanbanCard item={activeItem} epicChildProgress={epicProgress[activeItem.id] ?? null} isDragging />}
         </DragOverlay>
       </DndContext>
 
@@ -272,11 +286,12 @@ interface ColumnProps {
   label: string
   items: BacklogItem[]
   wipLimit: number | null
+  epicProgress: Record<string, { done: number; total: number }>
   onEditItem: (item: BacklogItem) => void
   activeId: string | null
 }
 
-function KanbanColumn({ id, label, items, wipLimit, onEditItem, activeId }: ColumnProps) {
+function KanbanColumn({ id, label, items, wipLimit, epicProgress, onEditItem, activeId }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id })
   const wipExceeded = wipLimit != null && items.length > wipLimit
 
@@ -306,6 +321,7 @@ function KanbanColumn({ id, label, items, wipLimit, onEditItem, activeId }: Colu
             <KanbanCard
               key={item.id}
               item={item}
+              epicChildProgress={epicProgress[item.id] ?? null}
               onEdit={() => onEditItem(item)}
               isActive={activeId === item.id}
             />
@@ -323,9 +339,10 @@ interface CardProps {
   onEdit?: () => void
   isDragging?: boolean
   isActive?: boolean
+  epicChildProgress?: { done: number; total: number } | null
 }
 
-function KanbanCard({ item, onEdit, isDragging, isActive }: CardProps) {
+function KanbanCard({ item, onEdit, isDragging, isActive, epicChildProgress }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging: isSortDragging } = useSortable({
     id: item.id,
     data: { type: 'item', item },
@@ -396,6 +413,22 @@ function KanbanCard({ item, onEdit, isDragging, isActive }: CardProps) {
           )}
         </div>
       </div>
+
+      {/* Epic progress */}
+      {item.itemType === 'epic' && epicChildProgress && epicChildProgress.total > 0 && (
+        <div className="px-3 pb-2">
+          <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+            <span>Progreso</span>
+            <span>{epicChildProgress.done}/{epicChildProgress.total}</span>
+          </div>
+          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-indigo-500 rounded-full transition-all"
+              style={{ width: `${Math.round((epicChildProgress.done / epicChildProgress.total) * 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Edit button — separate from drag area */}
       <div className="border-t px-3 py-1.5">

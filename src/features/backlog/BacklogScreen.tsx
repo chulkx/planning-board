@@ -28,6 +28,7 @@ export default function BacklogScreen() {
 
   const [sorting, setSorting] = useState<SortingState>([])
   const [selectedItem, setSelectedItem] = useState<BacklogItem | null>(null)
+  const [viewMode, setViewMode] = useState<'flat' | 'tree'>('flat')
 
   // Filters
   const [filterProduct, setFilterProduct] = useState('')
@@ -202,7 +203,23 @@ export default function BacklogScreen() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Backlog Global</h1>
-        <span className="text-sm text-slate-500">{filteredItems.length} items</span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-slate-500">{filteredItems.length} items</span>
+          <div className="flex text-xs border rounded overflow-hidden">
+            <button
+              onClick={() => setViewMode('flat')}
+              className={`px-2 py-1 ${viewMode === 'flat' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}`}
+            >
+              Tabla
+            </button>
+            <button
+              onClick={() => setViewMode('tree')}
+              className={`px-2 py-1 ${viewMode === 'tree' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}`}
+            >
+              Árbol
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Filters */}
@@ -304,6 +321,8 @@ export default function BacklogScreen() {
           <p className="text-lg mb-2">No hay items en el backlog</p>
           <Link to="/import" className="text-indigo-600 text-sm hover:underline">Importar CSV →</Link>
         </div>
+      ) : viewMode === 'tree' ? (
+        <BacklogTreeView items={filteredItems} onSelectItem={setSelectedItem} selectedItemId={selectedItem?.id} />
       ) : (
         <div className="overflow-x-auto rounded-lg border bg-white">
           <table className="w-full text-sm">
@@ -356,6 +375,91 @@ export default function BacklogScreen() {
         onClose={() => setSelectedItem(null)}
         onSaved={handleSaved}
       />
+    </div>
+  )
+}
+
+// ─── Tree view ────────────────────────────────────────────────────────────────
+
+function BacklogTreeView({
+  items,
+  onSelectItem,
+  selectedItemId,
+}: {
+  items: BacklogItem[]
+  onSelectItem: (item: BacklogItem) => void
+  selectedItemId?: string
+}) {
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+
+  const roots = useMemo(() => items.filter((i) => i.parentId == null), [items])
+  const childrenMap = useMemo(() => {
+    const map: Record<string, BacklogItem[]> = {}
+    for (const item of items) {
+      if (item.parentId != null) {
+        map[item.parentId] = [...(map[item.parentId] ?? []), item]
+      }
+    }
+    return map
+  }, [items])
+
+  function toggleCollapse(id: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function renderItem(item: BacklogItem, depth: number) {
+    const children = childrenMap[item.id] ?? []
+    const isCollapsed = collapsed.has(item.id)
+    const pCfg = PRIORITY_CONFIG[item.priority]
+    const sCfg = STATUS_CONFIG[item.status]
+    const tCfg = ITEM_TYPE_CONFIG[item.itemType]
+    const doneChildren = children.filter((c) => c.status === 'done').length
+
+    return (
+      <div key={item.id}>
+        <div
+          className={`flex items-center gap-2 px-3 py-2 border-b hover:bg-slate-50 transition-colors text-sm cursor-pointer ${selectedItemId === item.id ? 'bg-indigo-50' : ''}`}
+          style={{ paddingLeft: `${12 + depth * 20}px` }}
+          onClick={() => onSelectItem(item)}
+        >
+          {children.length > 0 ? (
+            <button
+              className="text-slate-400 hover:text-slate-600 w-4 shrink-0 text-center"
+              onClick={(e) => { e.stopPropagation(); toggleCollapse(item.id) }}
+            >
+              {isCollapsed ? '▶' : '▼'}
+            </button>
+          ) : (
+            <span className="w-4 shrink-0" />
+          )}
+          <span className={`text-xs font-medium shrink-0 ${tCfg.color}`}>{tCfg.label}</span>
+          <span className={`text-xs px-1.5 py-0.5 rounded-full shrink-0 ${pCfg.bgColor} ${pCfg.color}`}>{pCfg.label}</span>
+          <span className="flex-1 truncate text-slate-800 font-medium" title={item.title}>{item.title}</span>
+          {children.length > 0 && (
+            <span className="text-xs text-slate-400 shrink-0">{doneChildren}/{children.length}</span>
+          )}
+          <span className={`text-xs px-1.5 py-0.5 rounded-full shrink-0 ${sCfg.bgColor} ${sCfg.color}`}>{sCfg.label}</span>
+          {item.effortStoryPoints != null && (
+            <span className="text-xs text-slate-400 shrink-0 w-10 text-right">{item.effortStoryPoints}pts</span>
+          )}
+        </div>
+        {!isCollapsed && children.map((child) => renderItem(child, depth + 1))}
+      </div>
+    )
+  }
+
+  if (items.length === 0) {
+    return <p className="text-center text-slate-400 py-8 text-sm">Sin resultados para los filtros aplicados</p>
+  }
+
+  return (
+    <div className="rounded-lg border bg-white overflow-x-auto">
+      {roots.map((item) => renderItem(item, 0))}
     </div>
   )
 }

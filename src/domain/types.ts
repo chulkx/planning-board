@@ -40,6 +40,7 @@ export interface BacklogItem {
   prodChanges: string | null
   relatedItemId: string | null
   relatedItemTitle: string | null
+  parentId: string | null
   helpDeskId: string | null
   helpDeskTitle: string | null
   createdBy: string | null
@@ -207,4 +208,32 @@ export interface SprintClosePreview {
   sprint: Sprint
   completedCount: number
   incompleteItems: SprintClosePreviewItem[]
+}
+
+export interface SprintCapacityEntry {
+  id: string
+  sprintId: string
+  developerId: string
+  developerName: string
+  defaultSp: number
+  capacityHours: number
+  capacityStoryPoints: number | null
+  notes: string | null
+  createdAt: string
+}
+
+export interface RetroActionItem {
+  text: string
+  owner?: string
+  done: boolean
+}
+
+export interface Retrospective {
+  id: string
+  sprintId: string
+  wentWell: string | null
+  toImprove: string | null
+  actionItems: RetroActionItem[]
+  createdAt: string
+  updatedAt: string
 }

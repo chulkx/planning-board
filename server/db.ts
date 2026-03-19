@@ -222,6 +222,48 @@ const MIGRATIONS: Migration[] = [
       })()
     },
   },
+  {
+    version: 7,
+    description: 'add parent_id to backlog_items for hierarchy',
+    up: (db) => {
+      db.exec(`ALTER TABLE backlog_items ADD COLUMN parent_id TEXT REFERENCES backlog_items(id)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_backlog_items_parent ON backlog_items(parent_id)`)
+    },
+  },
+  {
+    version: 8,
+    description: 'add sprint_capacity table for per-sprint developer capacity',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS sprint_capacity (
+        id                     TEXT PRIMARY KEY,
+        sprint_id              TEXT NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,
+        developer_id           TEXT NOT NULL REFERENCES developers(id) ON DELETE CASCADE,
+        capacity_hours         REAL NOT NULL DEFAULT 0,
+        capacity_story_points  REAL,
+        notes                  TEXT,
+        created_at             TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(sprint_id, developer_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_sprint_capacity_sprint ON sprint_capacity(sprint_id);
+      CREATE INDEX IF NOT EXISTS idx_sprint_capacity_dev    ON sprint_capacity(developer_id);
+    `),
+  },
+  {
+    version: 9,
+    description: 'add retrospectives table',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS retrospectives (
+        id           TEXT PRIMARY KEY,
+        sprint_id    TEXT NOT NULL UNIQUE REFERENCES sprints(id) ON DELETE CASCADE,
+        went_well    TEXT,
+        to_improve   TEXT,
+        action_items TEXT NOT NULL DEFAULT '[]',
+        created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_retrospectives_sprint ON retrospectives(sprint_id);
+    `),
+  },
 ]
 
 export function migrate() {

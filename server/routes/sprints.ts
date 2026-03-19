@@ -220,3 +220,85 @@ sprintsRouter.get('/:id/burndown', (req, res) => {
     snapshots: result,
   })
 })
+
+// --- Sprint capacity ---
+
+sprintsRouter.get('/:id/capacity', (req, res) => {
+  const rows = db.prepare(`
+    SELECT sc.*, d.name as developer_name, d.capacity_per_sprint as default_sp
+    FROM sprint_capacity sc
+    JOIN developers d ON d.id = sc.developer_id
+    WHERE sc.sprint_id = ?
+  `).all(req.params.id) as Array<Record<string, unknown>>
+  res.json(rows.map(r => ({
+    id: r.id,
+    sprintId: r.sprint_id,
+    developerId: r.developer_id,
+    developerName: r.developer_name,
+    defaultSp: r.default_sp,
+    capacityHours: r.capacity_hours,
+    capacityStoryPoints: r.capacity_story_points,
+    notes: r.notes,
+    createdAt: r.created_at,
+  })))
+})
+
+sprintsRouter.put('/:id/capacity/:devId', (req, res) => {
+  const { capacityHours = 0, capacityStoryPoints, notes } = req.body as {
+    capacityHours?: number; capacityStoryPoints?: number | null; notes?: string | null
+  }
+  const existing = db.prepare('SELECT id FROM sprint_capacity WHERE sprint_id = ? AND developer_id = ?').get(req.params.id, req.params.devId)
+  if (existing) {
+    db.prepare('UPDATE sprint_capacity SET capacity_hours = ?, capacity_story_points = ?, notes = ? WHERE sprint_id = ? AND developer_id = ?')
+      .run(capacityHours, capacityStoryPoints ?? null, notes ?? null, req.params.id, req.params.devId)
+  } else {
+    db.prepare('INSERT INTO sprint_capacity (id, sprint_id, developer_id, capacity_hours, capacity_story_points, notes) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(randomUUID(), req.params.id, req.params.devId, capacityHours, capacityStoryPoints ?? null, notes ?? null)
+  }
+  const row = db.prepare(`
+    SELECT sc.*, d.name as developer_name, d.capacity_per_sprint as default_sp
+    FROM sprint_capacity sc JOIN developers d ON d.id = sc.developer_id
+    WHERE sc.sprint_id = ? AND sc.developer_id = ?
+  `).get(req.params.id, req.params.devId) as Record<string, unknown>
+  res.json({
+    id: row.id, sprintId: row.sprint_id, developerId: row.developer_id,
+    developerName: row.developer_name, defaultSp: row.default_sp,
+    capacityHours: row.capacity_hours, capacityStoryPoints: row.capacity_story_points,
+    notes: row.notes, createdAt: row.created_at,
+  })
+})
+
+// --- Sprint retrospective ---
+
+sprintsRouter.get('/:id/retrospective', (req, res) => {
+  const row = db.prepare('SELECT * FROM retrospectives WHERE sprint_id = ?').get(req.params.id) as Record<string, unknown> | undefined
+  if (!row) { res.json(null); return }
+  res.json({
+    id: row.id, sprintId: row.sprint_id,
+    wentWell: row.went_well, toImprove: row.to_improve,
+    actionItems: JSON.parse(row.action_items as string ?? '[]'),
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  })
+})
+
+sprintsRouter.put('/:id/retrospective', (req, res) => {
+  const { wentWell, toImprove, actionItems = [] } = req.body as {
+    wentWell?: string | null; toImprove?: string | null; actionItems?: Array<{ text: string; owner?: string; done: boolean }>
+  }
+  const now = new Date().toISOString()
+  const existing = db.prepare('SELECT id FROM retrospectives WHERE sprint_id = ?').get(req.params.id)
+  if (existing) {
+    db.prepare('UPDATE retrospectives SET went_well = ?, to_improve = ?, action_items = ?, updated_at = ? WHERE sprint_id = ?')
+      .run(wentWell ?? null, toImprove ?? null, JSON.stringify(actionItems), now, req.params.id)
+  } else {
+    db.prepare('INSERT INTO retrospectives (id, sprint_id, went_well, to_improve, action_items, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(randomUUID(), req.params.id, wentWell ?? null, toImprove ?? null, JSON.stringify(actionItems), now, now)
+  }
+  const row = db.prepare('SELECT * FROM retrospectives WHERE sprint_id = ?').get(req.params.id) as Record<string, unknown>
+  res.json({
+    id: row.id, sprintId: row.sprint_id,
+    wentWell: row.went_well, toImprove: row.to_improve,
+    actionItems: JSON.parse(row.action_items as string ?? '[]'),
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  })
+})

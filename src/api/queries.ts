@@ -12,6 +12,8 @@ export const QUERY_KEYS = {
   sprintBurndown: (id: string) => ['sprint-burndown', id] as const,
   velocity:       (productId?: string) => ['velocity', productId ?? 'all'] as const,
   cfd:            (productId: string) => ['cfd', productId] as const,
+  sprintCapacity: (id: string) => ['sprint-capacity', id] as const,
+  retrospective:  (id: string) => ['retrospective', id] as const,
 }
 
 export const STALE_TIMES = {
@@ -25,4 +27,6 @@ export const STALE_TIMES = {
   sprintBurndown: 60_000,     // 1min — changes as items complete
   velocity:       5 * 60_000, // 5min — only changes on sprint close
   cfd:            5 * 60_000, // 5min
+  sprintCapacity: 30_000,
+  retrospective:  60_000,
 }

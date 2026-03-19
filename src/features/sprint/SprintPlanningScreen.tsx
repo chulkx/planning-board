@@ -1,8 +1,8 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getSprints, createSprint, getBacklogItems, getDevelopers, patchBacklogItem, getProducts, getSprintBurndown, getVelocity, deleteSprint, getSprintClosePreview, closeSprint } from '@/api/client'
+import { getSprints, createSprint, getBacklogItems, getDevelopers, patchBacklogItem, getProducts, getSprintBurndown, getVelocity, deleteSprint, getSprintClosePreview, closeSprint, getSprintCapacity, putSprintCapacity, getRetrospective, putRetrospective } from '@/api/client'
 import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
-import type { BacklogItem, SprintClosePreview } from '@/domain/types'
+import type { BacklogItem, SprintClosePreview, RetroActionItem } from '@/domain/types'
 import { PRIORITY_CONFIG, STATUS_CONFIG } from '@/domain/enums'
 
 export default function SprintPlanningScreen() {
@@ -312,37 +312,13 @@ export default function SprintPlanningScreen() {
             {(developers.length > 0 || Object.keys(capacityByProduct).length > 0) && (
               <div className="grid grid-cols-2 gap-3">
                 {/* Dev capacity */}
-                {developers.length > 0 && (
-                  <div className="bg-slate-50 rounded-lg p-3">
-                    <h3 className="text-xs font-medium text-slate-600 mb-2">Carga por developer</h3>
-                    <div className="space-y-2">
-                      {developers
-                        .filter((d) => (capacityByDev[d.name] ?? 0) > 0 || d.capacityPerSprint > 0)
-                        .map((dev) => {
-                          const used = capacityByDev[dev.name] ?? 0
-                          const cap = dev.capacityPerSprint
-                          const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : null
-                          return (
-                            <div key={dev.id}>
-                              <div className="flex items-center justify-between text-xs mb-1">
-                                <span className="text-slate-600">{dev.name}</span>
-                                <span className={`font-medium ${pct !== null && pct > 100 ? 'text-red-600' : 'text-slate-500'}`}>
-                                  {used}{cap > 0 ? `/${cap}` : ''} pts
-                                </span>
-                              </div>
-                              {cap > 0 && (
-                                <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                                  <div
-                                    className={`h-full rounded-full transition-all ${pct! > 100 ? 'bg-red-500' : pct! > 80 ? 'bg-amber-400' : 'bg-indigo-500'}`}
-                                    style={{ width: `${pct}%` }}
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
-                    </div>
-                  </div>
+                {developers.length > 0 && selectedSprintId && (
+                  <DevCapacityPanel
+                    sprintId={selectedSprintId}
+                    developers={developers}
+                    capacityByDev={capacityByDev}
+                    queryClient={queryClient}
+                  />
                 )}
 
                 {/* Product breakdown */}
@@ -429,6 +405,11 @@ export default function SprintPlanningScreen() {
                   })}
                 </div>
               </div>
+            )}
+
+            {/* Retrospective */}
+            {selectedSprintId && (
+              <RetroPanel sprintId={selectedSprintId} />
             )}
 
             {/* Sprint items */}
@@ -632,6 +613,215 @@ function CloseSprintModal({
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── DevCapacityPanel ─────────────────────────────────────────────────────────
+
+function DevCapacityPanel({
+  sprintId,
+  developers,
+  capacityByDev,
+  queryClient,
+}: {
+  sprintId: string
+  developers: import('@/domain/types').Developer[]
+  capacityByDev: Record<string, number>
+  queryClient: ReturnType<typeof useQueryClient>
+}) {
+  const { data: capacityEntries = [] } = useQuery({
+    queryKey: QUERY_KEYS.sprintCapacity(sprintId),
+    queryFn: () => getSprintCapacity(sprintId),
+    staleTime: STALE_TIMES.sprintCapacity,
+  })
+
+  const [editingDevId, setEditingDevId] = useState<string | null>(null)
+  const [editingValue, setEditingValue] = useState('')
+
+  const capacityMap = useMemo(
+    () => Object.fromEntries(capacityEntries.map((e) => [e.developerId, e])),
+    [capacityEntries]
+  )
+
+  async function handleSaveCapacity(devId: string) {
+    const val = parseFloat(editingValue)
+    if (isNaN(val)) { setEditingDevId(null); return }
+    await putSprintCapacity(sprintId, devId, { capacityStoryPoints: val })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sprintCapacity(sprintId) })
+    setEditingDevId(null)
+  }
+
+  return (
+    <div className="bg-slate-50 rounded-lg p-3">
+      <h3 className="text-xs font-medium text-slate-600 mb-2">Carga por developer</h3>
+      <div className="space-y-2">
+        {developers.map((dev) => {
+          const entry = capacityMap[dev.id]
+          const cap = entry?.capacityStoryPoints ?? dev.capacityPerSprint
+          const used = capacityByDev[dev.name] ?? 0
+          const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : null
+          const barColor = pct == null ? 'bg-indigo-500' : pct > 100 ? 'bg-red-500' : pct > 80 ? 'bg-amber-400' : 'bg-green-500'
+          return (
+            <div key={dev.id}>
+              <div className="flex items-center justify-between text-xs mb-1">
+                <span className="text-slate-600">{dev.name}</span>
+                <span className={`font-medium ${pct !== null && pct > 100 ? 'text-red-600' : 'text-slate-500'}`}>
+                  {used} /&nbsp;
+                  {editingDevId === dev.id ? (
+                    <input
+                      type="number"
+                      className="w-12 border rounded px-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                      value={editingValue}
+                      autoFocus
+                      onChange={(e) => setEditingValue(e.target.value)}
+                      onBlur={() => handleSaveCapacity(dev.id)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSaveCapacity(dev.id); if (e.key === 'Escape') setEditingDevId(null) }}
+                    />
+                  ) : (
+                    <button
+                      className="underline decoration-dotted hover:text-indigo-600"
+                      title="Click para editar capacidad"
+                      onClick={() => { setEditingDevId(dev.id); setEditingValue(String(cap)) }}
+                    >
+                      {cap} pts
+                    </button>
+                  )}
+                </span>
+              </div>
+              {cap > 0 && (
+                <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${barColor}`}
+                    style={{ width: `${Math.min(100, pct ?? 0)}%` }}
+                  />
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── RetroPanel ───────────────────────────────────────────────────────────────
+
+function RetroPanel({ sprintId }: { sprintId: string }) {
+  const queryClient = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [wentWell, setWentWell] = useState('')
+  const [toImprove, setToImprove] = useState('')
+  const [actionItems, setActionItems] = useState<RetroActionItem[]>([])
+  const [newActionText, setNewActionText] = useState('')
+  const [loaded, setLoaded] = useState(false)
+
+  const { data: retro } = useQuery({
+    queryKey: QUERY_KEYS.retrospective(sprintId),
+    queryFn: () => getRetrospective(sprintId),
+    staleTime: STALE_TIMES.retrospective,
+    enabled: open,
+  })
+
+  // Sync local state when retro loads
+  useMemo(() => {
+    if (retro !== undefined && !loaded) {
+      setWentWell(retro?.wentWell ?? '')
+      setToImprove(retro?.toImprove ?? '')
+      setActionItems(retro?.actionItems ?? [])
+      setLoaded(true)
+    }
+  }, [retro, loaded])
+
+  // Reset loaded flag when sprint changes
+  useMemo(() => { setLoaded(false) }, [sprintId])
+
+  async function handleBlurSave() {
+    const saved = await putRetrospective(sprintId, { wentWell: wentWell || null, toImprove: toImprove || null, actionItems })
+    queryClient.setQueryData(QUERY_KEYS.retrospective(sprintId), saved)
+  }
+
+  async function handleToggleAction(idx: number) {
+    const updated = actionItems.map((a, i) => i === idx ? { ...a, done: !a.done } : a)
+    setActionItems(updated)
+    const saved = await putRetrospective(sprintId, { wentWell: wentWell || null, toImprove: toImprove || null, actionItems: updated })
+    queryClient.setQueryData(QUERY_KEYS.retrospective(sprintId), saved)
+  }
+
+  async function handleAddAction() {
+    if (!newActionText.trim()) return
+    const updated = [...actionItems, { text: newActionText.trim(), done: false }]
+    setActionItems(updated)
+    setNewActionText('')
+    const saved = await putRetrospective(sprintId, { wentWell: wentWell || null, toImprove: toImprove || null, actionItems: updated })
+    queryClient.setQueryData(QUERY_KEYS.retrospective(sprintId), saved)
+  }
+
+  return (
+    <div className="bg-slate-50 rounded-lg p-3">
+      <button
+        className="w-full flex items-center justify-between text-xs font-medium text-slate-600"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span>Retrospectiva</span>
+        <span className="text-slate-400">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="mt-3 space-y-3">
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">¿Qué salió bien?</label>
+            <textarea
+              className="w-full border rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none"
+              rows={3}
+              value={wentWell}
+              onChange={(e) => setWentWell(e.target.value)}
+              onBlur={handleBlurSave}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">¿Qué mejorar?</label>
+            <textarea
+              className="w-full border rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none"
+              rows={3}
+              value={toImprove}
+              onChange={(e) => setToImprove(e.target.value)}
+              onBlur={handleBlurSave}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Action items</label>
+            <div className="space-y-1 mb-2">
+              {actionItems.map((a, i) => (
+                <div key={i} className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={a.done}
+                    onChange={() => handleToggleAction(i)}
+                    className="rounded"
+                  />
+                  <span className={a.done ? 'line-through text-slate-400' : 'text-slate-700'}>{a.text}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                className="flex-1 border rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                placeholder="Nuevo action item..."
+                value={newActionText}
+                onChange={(e) => setNewActionText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddAction() }}
+              />
+              <button
+                onClick={handleAddAction}
+                className="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
+              >
+                Agregar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

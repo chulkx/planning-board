@@ -173,3 +173,29 @@ export function getSprintClosePreview(id: string): Promise<import('@/domain/type
 export function closeSprint(id: string): Promise<import('@/domain/types').Sprint> {
   return request(`/sprints/${id}/close`, { method: 'POST' })
 }
+
+// --- Sprint capacity ---
+
+export function getSprintCapacity(sprintId: string): Promise<import('@/domain/types').SprintCapacityEntry[]> {
+  return request(`/sprints/${sprintId}/capacity`)
+}
+
+export function putSprintCapacity(sprintId: string, devId: string, data: { capacityHours?: number; capacityStoryPoints?: number | null; notes?: string | null }): Promise<import('@/domain/types').SprintCapacityEntry> {
+  return request(`/sprints/${sprintId}/capacity/${devId}`, { method: 'PUT', body: JSON.stringify(data) })
+}
+
+// --- Retrospective ---
+
+export function getRetrospective(sprintId: string): Promise<import('@/domain/types').Retrospective | null> {
+  return request(`/sprints/${sprintId}/retrospective`)
+}
+
+export function putRetrospective(sprintId: string, data: { wentWell?: string | null; toImprove?: string | null; actionItems?: import('@/domain/types').RetroActionItem[] }): Promise<import('@/domain/types').Retrospective> {
+  return request(`/sprints/${sprintId}/retrospective`, { method: 'PUT', body: JSON.stringify(data) })
+}
+
+// --- Item parent ---
+
+export function patchItemParent(id: string, parentId: string | null): Promise<import('@/domain/types').BacklogItem> {
+  return request(`/backlog-items/${id}/parent`, { method: 'PATCH', body: JSON.stringify({ parentId }) })
+}

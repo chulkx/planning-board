@@ -34,6 +34,7 @@ function deserializeItem(row: Record<string, unknown>): BacklogItem {
     prodChanges: row.prod_changes as string | null,
     relatedItemId: row.related_item_id as string | null,
     relatedItemTitle: row.related_item_title as string | null,
+    parentId: row.parent_id as string | null,
     helpDeskId: row.help_desk_id as string | null,
     helpDeskTitle: row.help_desk_title as string | null,
     createdBy: row.created_by as string | null,
@@ -89,6 +90,30 @@ backlogRouter.get('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM backlog_items WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined
   if (!row) { res.status(404).json({ error: 'Not found' }); return }
   res.json(deserializeItem(row))
+})
+
+backlogRouter.patch('/:id/parent', (req, res) => {
+  const item = db.prepare('SELECT * FROM backlog_items WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined
+  if (!item) { res.status(404).json({ error: 'Not found' }); return }
+
+  const { parentId } = req.body as { parentId: string | null }
+
+  if (parentId != null) {
+    // Validate parent exists
+    const parent = db.prepare('SELECT id, item_type, parent_id FROM backlog_items WHERE id = ?').get(parentId) as Record<string, unknown> | undefined
+    if (!parent) { res.status(400).json({ error: 'Parent not found' }); return }
+
+    // Check for cycles: walk up from parentId, ensure we never hit req.params.id
+    let cur: string | null = parentId
+    while (cur != null) {
+      if (cur === req.params.id) { res.status(400).json({ error: 'Circular hierarchy not allowed' }); return }
+      const row = db.prepare('SELECT parent_id FROM backlog_items WHERE id = ?').get(cur) as { parent_id: string | null } | undefined
+      cur = row?.parent_id ?? null
+    }
+  }
+
+  db.prepare('UPDATE backlog_items SET parent_id = ?, updated_at = ? WHERE id = ?').run(parentId ?? null, new Date().toISOString(), req.params.id)
+  res.json(deserializeItem(db.prepare('SELECT * FROM backlog_items WHERE id = ?').get(req.params.id) as Record<string, unknown>))
 })
 
 backlogRouter.patch('/:id', (req, res) => {

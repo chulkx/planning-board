@@ -5,7 +5,7 @@ export type Priority = 'critical' | 'high' | 'medium' | 'low'
 export type BacklogStatus = 'not-started' | 'in-progress' | 'blocked' | 'review' | 'done' | 'cancelled'
 export type SprintStatus = 'planned' | 'active' | 'completed' | 'closed'
 export type MilestoneStatus = 'planned' | 'active' | 'completed'
-export type ItemType = 'bug' | 'feature' | 'task'
+export type ItemType = 'epic' | 'story' | 'bug' | 'feature' | 'task'
 export type EffortUnit = 'story-points' | 'hours-estimated' | 'hours-quoted' | 'hours-actual'
 
 // --- CSV normalization maps ---
@@ -62,6 +62,11 @@ export const CSV_STATUS_MAP: Record<string, BacklogStatus> = {
 
 /** Maps raw CSV item type values to internal ItemType enum */
 export const CSV_ITEM_TYPE_MAP: Record<string, ItemType> = {
+  'epic': 'epic',
+  'épico': 'epic',
+  'historia': 'story',
+  'story': 'story',
+  'user story': 'story',
   'bug': 'bug',
   'error': 'bug',
   'defecto': 'bug',
@@ -92,6 +97,8 @@ export const STATUS_CONFIG: Record<BacklogStatus, { label: string; color: string
 }
 
 export const ITEM_TYPE_CONFIG: Record<ItemType, { label: string; color: string }> = {
+  epic:    { label: 'Épico',         color: 'text-purple-600' },
+  story:   { label: 'Historia',      color: 'text-blue-600' },
   bug:     { label: 'Bug',           color: 'text-status-critical-fg' },
   feature: { label: 'Funcionalidad', color: 'text-status-progress-fg' },
   task:    { label: 'Tarea',         color: 'text-status-neutral-fg' },
