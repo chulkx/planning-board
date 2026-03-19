@@ -180,14 +180,26 @@ export function commitImport(
             skipped++
           } else {
             updateItem.run(params)
+            db.prepare(`
+              INSERT INTO item_events (id, item_id, event_type, source, actor)
+              VALUES (?, ?, 'imported', 'import', 'csv-import')
+            `).run(randomUUID(), existing.id)
             updated++
           }
         } else {
           insertItem.run(params)
+          db.prepare(`
+            INSERT INTO item_events (id, item_id, event_type, source, actor)
+            VALUES (?, ?, 'imported', 'import', 'csv-import')
+          `).run(randomUUID(), params.id)
           created++
         }
       } else {
         insertItem.run(params)
+        db.prepare(`
+          INSERT INTO item_events (id, item_id, event_type, source, actor)
+          VALUES (?, ?, 'imported', 'import', 'csv-import')
+        `).run(randomUUID(), params.id)
         created++
       }
     }

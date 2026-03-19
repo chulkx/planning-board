@@ -150,6 +150,29 @@ backlogRouter.patch('/:id', (req, res) => {
   values.push(req.params.id)
   db.prepare(`UPDATE backlog_items SET ${setClauses.join(', ')} WHERE id = ?`).run(...values)
 
+  // Record item_events for changed fields
+  const trackFields: Array<{ jsKey: string; eventType: string; field: string }> = [
+    { jsKey: 'status',     eventType: 'status_changed',   field: 'status' },
+    { jsKey: 'priority',   eventType: 'priority_changed', field: 'priority' },
+    { jsKey: 'sprintId',   eventType: 'sprint_changed',   field: 'sprintId' },
+    { jsKey: 'assigneeIds',eventType: 'assigned',         field: 'assigneeIds' },
+  ]
+  for (const { jsKey, eventType, field } of trackFields) {
+    if (!(jsKey in updates)) continue
+    const oldVal = jsKey === 'assigneeIds'
+      ? JSON.parse(item.assignee_ids as string ?? '[]')
+      : item[jsKey === 'sprintId' ? 'sprint_id' : jsKey === 'priority' ? 'priority' : 'status']
+    const newVal = (updates as Record<string, unknown>)[jsKey]
+    const oldStr = JSON.stringify(oldVal)
+    const newStr = JSON.stringify(newVal)
+    if (oldStr !== newStr) {
+      db.prepare(`
+        INSERT INTO item_events (id, item_id, event_type, field, old_value, new_value, source)
+        VALUES (?, ?, ?, ?, ?, ?, 'user')
+      `).run(randomUUID(), req.params.id, eventType, field, oldStr, newStr)
+    }
+  }
+
   const updated = db.prepare('SELECT * FROM backlog_items WHERE id = ?').get(req.params.id) as Record<string, unknown>
   res.json(deserializeItem(updated))
 })

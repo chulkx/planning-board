@@ -1,8 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getSprints, createSprint, getBacklogItems, getDevelopers, patchBacklogItem, getProducts } from '@/api/client'
+import { getSprints, createSprint, getBacklogItems, getDevelopers, patchBacklogItem, getProducts, getSprintBurndown, getVelocity, deleteSprint } from '@/api/client'
 import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
-import { request } from '@/api/internal'
 import type { BacklogItem } from '@/domain/types'
 import { PRIORITY_CONFIG, STATUS_CONFIG } from '@/domain/enums'
 
@@ -85,7 +84,7 @@ export default function SprintPlanningScreen() {
   async function handleDeleteSprint() {
     if (!selectedSprintId) return
     if (!confirm('¿Eliminar este sprint? Los items quedarán sin sprint asignado.')) return
-    await request(`/sprints/${selectedSprintId}`, { method: 'DELETE' })
+    await deleteSprint(selectedSprintId)
     const next = sprints.filter((s) => s.id !== selectedSprintId)
     setSelectedSprintId(next[0]?.id ?? '')
     await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sprints })
@@ -114,36 +113,18 @@ export default function SprintPlanningScreen() {
     return map
   }, [sprintItems])
 
-  // Burndown: remaining items per day within the sprint
-  const burndownData = useMemo(() => {
-    if (!selectedSprint?.startDate || !selectedSprint?.endDate) return []
-    const start = new Date(selectedSprint.startDate)
-    const end   = new Date(selectedSprint.endDate)
-    const today = new Date()
-    const effectiveEnd = today < end ? today : end
-    const total = sprintItems.length
-    if (total === 0 || start > effectiveEnd) return []
+  const { data: burndown } = useQuery({
+    queryKey: QUERY_KEYS.sprintBurndown(selectedSprintId),
+    queryFn: () => getSprintBurndown(selectedSprintId),
+    enabled: !!selectedSprintId,
+    staleTime: STALE_TIMES.sprintBurndown,
+  })
 
-    const totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000))
-    const days: Array<{ label: string; remaining: number; ideal: number; isToday: boolean }> = []
-    const cur = new Date(start)
-    let d = 0
-    while (cur <= effectiveEnd) {
-      const dayEnd = new Date(cur); dayEnd.setHours(23, 59, 59, 999)
-      const completed = sprintItems.filter(
-        (i) => i.status === 'done' && i.updatedAt && new Date(i.updatedAt) <= dayEnd
-      ).length
-      days.push({
-        label: cur.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }),
-        remaining: total - completed,
-        ideal: Math.round(total * (1 - d / totalDays)),
-        isToday: cur.toDateString() === today.toDateString(),
-      })
-      cur.setDate(cur.getDate() + 1)
-      d++
-    }
-    return days
-  }, [selectedSprint, sprintItems])
+  const { data: velocity } = useQuery({
+    queryKey: QUERY_KEYS.velocity(),
+    queryFn: () => getVelocity({ limit: 6 }),
+    staleTime: STALE_TIMES.velocity,
+  })
 
   if (loading) return <div className="text-center py-20 text-slate-400">Cargando...</div>
 
@@ -361,10 +342,54 @@ export default function SprintPlanningScreen() {
             )}
 
             {/* Burndown chart */}
-            {burndownData.length > 1 && (
+            {burndown && burndown.snapshots.length > 1 && (
               <div className="bg-slate-50 rounded-lg p-3">
-                <h3 className="text-xs font-medium text-slate-600 mb-2">Burndown</h3>
-                <BurndownChart data={burndownData} total={sprintItems.length} />
+                <h3 className="text-xs font-medium text-slate-600 mb-2">
+                  Burndown · {burndown.totalCommittedPoints} pts comprometidos
+                </h3>
+                <BurndownChart
+                  data={burndown.snapshots.map(s => ({
+                    label: new Date(s.date + 'T12:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }),
+                    remaining: s.remainingStoryPoints,
+                    ideal: s.ideal,
+                    isToday: s.isToday,
+                  }))}
+                  total={burndown.totalCommittedPoints}
+                />
+              </div>
+            )}
+            {burndown && burndown.snapshots.length <= 1 && selectedSprint?.startDate && (
+              <div className="bg-slate-50 rounded-lg p-3 text-center text-xs text-slate-400">
+                Datos insuficientes para burndown — se acumulan con el uso diario
+              </div>
+            )}
+
+            {/* Velocity panel */}
+            {velocity && velocity.sprints.length > 0 && (
+              <div className="bg-slate-50 rounded-lg p-3">
+                <h3 className="text-xs font-medium text-slate-600 mb-2">
+                  Velocity — últimos {velocity.sprints.length} sprints completados
+                  <span className="ml-2 font-normal text-slate-400">promedio: {velocity.averageVelocity} pts</span>
+                </h3>
+                <div className="flex items-end gap-1.5 h-12">
+                  {[...velocity.sprints].reverse().map((s) => {
+                    const maxSP = Math.max(...velocity.sprints.map(x => x.committedStoryPoints), 1)
+                    const hPct = s.committedStoryPoints / maxSP
+                    const donePct = s.committedStoryPoints > 0 ? s.completedStoryPoints / s.committedStoryPoints : 0
+                    return (
+                      <div key={s.id} className="flex-1 flex flex-col items-center gap-0.5" title={`${s.name}: ${s.completedStoryPoints}/${s.committedStoryPoints} pts`}>
+                        <div className="w-full relative" style={{ height: `${Math.max(4, hPct * 40)}px` }}>
+                          <div className="absolute bottom-0 w-full bg-slate-200 rounded-sm" style={{ height: '100%' }} />
+                          <div
+                            className="absolute bottom-0 w-full bg-indigo-500 rounded-sm"
+                            style={{ height: `${donePct * 100}%` }}
+                          />
+                        </div>
+                        <span className="text-[9px] text-slate-400 truncate w-full text-center">{s.name.replace(/sprint\s*/i, 'S')}</span>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             )}
 

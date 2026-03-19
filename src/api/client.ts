@@ -123,3 +123,43 @@ export function createSprint(data: Partial<Sprint>): Promise<Sprint> {
 export function createMilestone(data: Partial<Milestone>): Promise<Milestone> {
   return request('/milestones', { method: 'POST', body: JSON.stringify(data) })
 }
+
+// --- Sprint metrics ---
+
+export function getSprintBurndown(sprintId: string): Promise<import('@/domain/types').SprintBurndownResponse> {
+  return request(`/sprints/${sprintId}/burndown`)
+}
+
+export function getVelocity(params?: { limit?: number; productId?: string }): Promise<import('@/domain/types').VelocityResponse> {
+  const qs = new URLSearchParams()
+  if (params?.limit) qs.set('limit', String(params.limit))
+  if (params?.productId) qs.set('productId', params.productId)
+  const q = qs.toString()
+  return request(`/reports/velocity${q ? `?${q}` : ''}`)
+}
+
+export function getCfd(productId: string, from?: string, to?: string): Promise<import('@/domain/types').CfdResponse> {
+  const qs = new URLSearchParams()
+  if (from) qs.set('from', from)
+  if (to) qs.set('to', to)
+  const q = qs.toString()
+  return request(`/reports/products/${productId}/cfd${q ? `?${q}` : ''}`)
+}
+
+// --- Sprints (new mutations) ---
+
+export function patchSprint(id: string, data: Record<string, unknown>): Promise<import('@/domain/types').Sprint> {
+  return request(`/sprints/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+}
+
+export function deleteSprint(id: string): Promise<void> {
+  return request(`/sprints/${id}`, { method: 'DELETE' })
+}
+
+export function patchMilestone(id: string, data: Record<string, unknown>): Promise<import('@/domain/types').Milestone> {
+  return request(`/milestones/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+}
+
+export function deleteMilestone(id: string): Promise<void> {
+  return request(`/milestones/${id}`, { method: 'DELETE' })
+}

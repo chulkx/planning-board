@@ -143,6 +143,70 @@ const MIGRATIONS: Migration[] = [
       db.exec(`CREATE INDEX IF NOT EXISTS idx_backlog_items_sort_order ON backlog_items(sort_order)`)
     },
   },
+  {
+    version: 3,
+    description: 'add item_events table for unified history',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS item_events (
+        id         TEXT PRIMARY KEY,
+        item_id    TEXT NOT NULL REFERENCES backlog_items(id) ON DELETE CASCADE,
+        event_type TEXT NOT NULL,
+        field      TEXT,
+        old_value  TEXT,
+        new_value  TEXT,
+        source     TEXT NOT NULL DEFAULT 'user',
+        actor      TEXT,
+        metadata   TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_item_events_item    ON item_events(item_id);
+      CREATE INDEX IF NOT EXISTS idx_item_events_type    ON item_events(event_type);
+      CREATE INDEX IF NOT EXISTS idx_item_events_created ON item_events(created_at);
+    `),
+  },
+  {
+    version: 4,
+    description: 'add sprint metrics columns and sprint_product_metrics table',
+    up: (db) => {
+      db.exec(`ALTER TABLE sprints ADD COLUMN closed_at TEXT`)
+      db.exec(`ALTER TABLE sprints ADD COLUMN sprint_goal TEXT`)
+      db.exec(`ALTER TABLE sprints ADD COLUMN committed_story_points REAL`)
+      db.exec(`ALTER TABLE sprints ADD COLUMN completed_story_points REAL`)
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS sprint_product_metrics (
+          id                      TEXT PRIMARY KEY,
+          sprint_id               TEXT NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,
+          product_id              TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+          committed_story_points  REAL,
+          completed_story_points  REAL,
+          UNIQUE(sprint_id, product_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_sprint_product_metrics_sprint  ON sprint_product_metrics(sprint_id);
+        CREATE INDEX IF NOT EXISTS idx_sprint_product_metrics_product ON sprint_product_metrics(product_id);
+      `)
+    },
+  },
+  {
+    version: 5,
+    description: 'add sprint_daily_snapshots table',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS sprint_daily_snapshots (
+        id                        TEXT PRIMARY KEY,
+        sprint_id                 TEXT NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,
+        snapshot_date             TEXT NOT NULL,
+        remaining_story_points    REAL NOT NULL DEFAULT 0,
+        remaining_estimated_hours REAL NOT NULL DEFAULT 0,
+        completed_story_points    REAL NOT NULL DEFAULT 0,
+        completed_items           INTEGER NOT NULL DEFAULT 0,
+        total_items               INTEGER NOT NULL DEFAULT 0,
+        status_counts             TEXT NOT NULL DEFAULT '{}',
+        created_at                TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(sprint_id, snapshot_date)
+      );
+      CREATE INDEX IF NOT EXISTS idx_snapshots_sprint ON sprint_daily_snapshots(sprint_id);
+      CREATE INDEX IF NOT EXISTS idx_snapshots_date   ON sprint_daily_snapshots(snapshot_date);
+    `),
+  },
 ]
 
 export function migrate() {

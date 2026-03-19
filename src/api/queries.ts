@@ -9,6 +9,9 @@ export const QUERY_KEYS = {
   milestones:   ['milestones']    as const,
   config:       ['config']        as const,
   importHistory:['import-history']as const,
+  sprintBurndown: (id: string) => ['sprint-burndown', id] as const,
+  velocity:       (productId?: string) => ['velocity', productId ?? 'all'] as const,
+  cfd:            (productId: string) => ['cfd', productId] as const,
 }
 
 export const STALE_TIMES = {
@@ -19,4 +22,7 @@ export const STALE_TIMES = {
   milestones:    2 * 60_000,  // 2min
   config:       10 * 60_000,  // 10min
   importHistory: 60_000,      // 1min
+  sprintBurndown: 60_000,     // 1min — changes as items complete
+  velocity:       5 * 60_000, // 5min — only changes on sprint close
+  cfd:            5 * 60_000, // 5min
 }

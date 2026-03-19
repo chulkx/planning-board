@@ -8,6 +8,8 @@ import { developersRouter } from './routes/developers.js'
 import { sprintsRouter } from './routes/sprints.js'
 import { milestonesRouter } from './routes/milestones.js'
 import { configRouter } from './routes/config.js'
+import { reportsRouter } from './routes/reports.js'
+import { runSnapshotJob } from './services/snapshotService.js'
 
 const app = express()
 const PORT = 3002
@@ -22,6 +24,7 @@ app.use('/api/v1/developers', developersRouter)
 app.use('/api/v1/sprints', sprintsRouter)
 app.use('/api/v1/milestones', milestonesRouter)
 app.use('/api/v1/config', configRouter)
+app.use('/api/v1/reports', reportsRouter)
 
 app.get('/api/v1/health', (_req, res) => {
   res.json({ status: 'ok' })
@@ -43,4 +46,14 @@ app.get('/api/v1/exports/json', (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`)
+  // Run snapshot job on startup to backfill any missing days
+  try { runSnapshotJob() } catch (e) { console.error('[snapshot] startup job failed:', e) }
 })
+
+// Re-run daily at midnight
+const now = new Date()
+const msUntilMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime() - now.getTime()
+setTimeout(() => {
+  runSnapshotJob()
+  setInterval(() => runSnapshotJob(), 24 * 60 * 60 * 1000)
+}, msUntilMidnight)

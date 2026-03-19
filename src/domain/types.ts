@@ -152,3 +152,40 @@ export interface BacklogFilters {
   milestoneId?: string
   search?: string
 }
+
+// --- Sprint metrics / reports ---
+
+export interface SprintBurndownResponse {
+  sprintId: string
+  sprintName: string
+  startDate: string | null
+  endDate: string | null
+  totalCommittedPoints: number
+  snapshots: Array<{
+    date: string
+    remainingStoryPoints: number
+    completedStoryPoints: number
+    statusCounts: Record<string, number>
+    isToday: boolean
+    ideal: number
+  }>
+}
+
+export interface VelocitySprintEntry {
+  id: string
+  name: string
+  closedAt: string
+  committedStoryPoints: number
+  completedStoryPoints: number
+  velocityRatio: number
+}
+
+export interface VelocityResponse {
+  sprints: VelocitySprintEntry[]
+  averageVelocity: number
+}
+
+export interface CfdResponse {
+  dates: string[]
+  series: Array<{ status: string; counts: number[] }>
+}
