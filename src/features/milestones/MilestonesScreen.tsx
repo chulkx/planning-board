@@ -1,14 +1,18 @@
 import { useEffect, useState, useMemo } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getMilestones, createMilestone, getBacklogItems, patchBacklogItem, getProducts } from '@/api/client'
+import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
 import { request } from '@/api/internal'
-import type { Milestone, BacklogItem, Product } from '@/domain/types'
+import type { Milestone } from '@/domain/types'
 import { STATUS_CONFIG } from '@/domain/enums'
 
 export default function MilestonesScreen() {
-  const [milestones, setMilestones] = useState<Milestone[]>([])
-  const [items, setItems] = useState<BacklogItem[]>([])
-  const [products, setProducts] = useState<Product[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  const { data: milestones = [], isLoading: l1 }= useQuery({ queryKey: QUERY_KEYS.milestones,   queryFn: getMilestones,   staleTime: STALE_TIMES.milestones })
+  const { data: items = [], isLoading: l2 }     = useQuery({ queryKey: QUERY_KEYS.backlogItems, queryFn: getBacklogItems, staleTime: STALE_TIMES.backlogItems })
+  const { data: products = [] }                 = useQuery({ queryKey: QUERY_KEYS.products,     queryFn: getProducts,     staleTime: STALE_TIMES.products })
+  const loading = l1 || l2
+
   const [selectedId, setSelectedId] = useState<string>('')
   const [showNew, setShowNew] = useState(false)
   const [newName, setNewName] = useState('')
@@ -16,15 +20,8 @@ export default function MilestonesScreen() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    Promise.all([getMilestones(), getBacklogItems(), getProducts()])
-      .then(([miles, its, prods]) => {
-        setMilestones(miles)
-        setItems(its)
-        setProducts(prods)
-        if (miles.length > 0) setSelectedId(miles[0].id)
-      })
-      .finally(() => setLoading(false))
-  }, [])
+    if (milestones.length > 0 && !selectedId) setSelectedId(milestones[0].id)
+  }, [milestones, selectedId])
 
   const selected = useMemo(() => milestones.find((m) => m.id === selectedId) ?? null, [milestones, selectedId])
 
@@ -54,7 +51,7 @@ export default function MilestonesScreen() {
     setSaving(true)
     try {
       const m = await createMilestone({ name: newName.trim(), targetDate: newDate || undefined })
-      setMilestones((prev) => [...prev, m])
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.milestones })
       setSelectedId(m.id)
       setShowNew(false)
       setNewName('')
@@ -66,23 +63,23 @@ export default function MilestonesScreen() {
 
   async function handleAdd(itemId: string) {
     if (!selectedId) return
-    const updated = await patchBacklogItem(itemId, { milestoneId: selectedId })
-    setItems((prev) => prev.map((i) => i.id === updated.id ? updated : i))
+    await patchBacklogItem(itemId, { milestoneId: selectedId })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.backlogItems })
   }
 
   async function handleRemove(itemId: string) {
-    const updated = await patchBacklogItem(itemId, { milestoneId: null })
-    setItems((prev) => prev.map((i) => i.id === updated.id ? updated : i))
+    await patchBacklogItem(itemId, { milestoneId: null })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.backlogItems })
   }
 
   async function handleDelete() {
     if (!selectedId) return
     if (!confirm('¿Eliminar este milestone? Los items quedarán sin milestone asignado.')) return
     await request(`/milestones/${selectedId}`, { method: 'DELETE' })
-    const updated = milestones.filter((m) => m.id !== selectedId)
-    setMilestones(updated)
-    setItems((prev) => prev.map((i) => i.milestoneId === selectedId ? { ...i, milestoneId: null } : i))
-    setSelectedId(updated[0]?.id ?? '')
+    const next = milestones.filter((m) => m.id !== selectedId)
+    setSelectedId(next[0]?.id ?? '')
+    await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.milestones })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.backlogItems })
   }
 
   if (loading) return <div className="text-center py-20 text-slate-400">Cargando...</div>

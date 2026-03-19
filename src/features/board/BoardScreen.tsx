@@ -11,42 +11,37 @@ import {
 } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getBacklogItems, getProducts, getDevelopers, getSprints, getMilestones, patchBacklogItem } from '@/api/client'
-import type { BacklogItem, Product, Developer, Sprint, Milestone } from '@/domain/types'
+import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
+import type { BacklogItem } from '@/domain/types'
 import { PRIORITY_CONFIG, STATUS_CONFIG, type BacklogStatus } from '@/domain/enums'
 import ItemEditPanel from '@/features/backlog/ItemEditPanel'
 
 export default function BoardScreen() {
-  const [items, setItems] = useState<BacklogItem[]>([])
-  const [products, setProducts] = useState<Product[]>([])
-  const [developers, setDevelopers] = useState<Developer[]>([])
-  const [sprints, setSprints] = useState<Sprint[]>([])
-  const [milestones, setMilestones] = useState<Milestone[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  const { data: items = [], isLoading: l1 }     = useQuery({ queryKey: QUERY_KEYS.backlogItems, queryFn: getBacklogItems, staleTime: STALE_TIMES.backlogItems })
+  const { data: products = [], isLoading: l2 }  = useQuery({ queryKey: QUERY_KEYS.products,     queryFn: getProducts,     staleTime: STALE_TIMES.products })
+  const { data: developers = [] }               = useQuery({ queryKey: QUERY_KEYS.developers,   queryFn: getDevelopers,   staleTime: STALE_TIMES.developers })
+  const { data: sprints = [] }                  = useQuery({ queryKey: QUERY_KEYS.sprints,      queryFn: getSprints,      staleTime: STALE_TIMES.sprints })
+  const { data: milestones = [] }               = useQuery({ queryKey: QUERY_KEYS.milestones,   queryFn: getMilestones,   staleTime: STALE_TIMES.milestones })
+  const loading = l1 || l2
+
   const [selectedProductId, setSelectedProductId] = useState<string>('')
   const [activeItem, setActiveItem] = useState<BacklogItem | null>(null)
   const [editItem, setEditItem] = useState<BacklogItem | null>(null)
+  const [filterSearch, setFilterSearch] = useState('')
+  const [filterPriority, setFilterPriority] = useState('')
+  const [filterAssignee, setFilterAssignee] = useState('')
+  const [filterSprint, setFilterSprint] = useState('')
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   )
 
   useEffect(() => {
-    Promise.all([
-      getBacklogItems(),
-      getProducts(),
-      getDevelopers(),
-      getSprints(),
-      getMilestones(),
-    ]).then(([its, prods, devs, sprts, miles]) => {
-      setItems(its)
-      setProducts(prods)
-      setDevelopers(devs)
-      setSprints(sprts)
-      setMilestones(miles)
-      if (prods.length > 0) setSelectedProductId(prods[0].id)
-    }).finally(() => setLoading(false))
-  }, [])
+    if (products.length > 0 && !selectedProductId) setSelectedProductId(products[0].id)
+  }, [products, selectedProductId])
 
   const selectedProduct = useMemo(
     () => products.find((p) => p.id === selectedProductId) ?? null,
@@ -59,14 +54,28 @@ export default function BoardScreen() {
   )
 
   const boardItems = useMemo(
-    () => items.filter((i) => !selectedProductId || i.productId === selectedProductId),
+    () => selectedProductId === '__all__' ? items : items.filter((i) => !selectedProductId || i.productId === selectedProductId),
     [items, selectedProductId]
   )
+
+  const filteredBoardItems = useMemo(() => boardItems.filter((i) => {
+    if (filterSearch) {
+      const q = filterSearch.toLowerCase()
+      if (!i.title.toLowerCase().includes(q)) return false
+    }
+    if (filterPriority && i.priority !== filterPriority) return false
+    if (filterAssignee && !i.assigneeIds.includes(filterAssignee)) return false
+    if (filterSprint === '__none__') { if (i.sprintId !== null) return false }
+    else if (filterSprint && i.sprintId !== filterSprint) return false
+    return true
+  }), [boardItems, filterSearch, filterPriority, filterAssignee, filterSprint])
+
+  const hasFilters = !!(filterSearch || filterPriority || filterAssignee || filterSprint)
 
   const byColumn = useMemo(() => {
     const map: Record<string, BacklogItem[]> = {}
     for (const col of columns) map[col] = []
-    for (const item of boardItems) {
+    for (const item of filteredBoardItems) {
       if (map[item.status]) map[item.status].push(item)
       else {
         const first = columns[0]
@@ -74,7 +83,7 @@ export default function BoardScreen() {
       }
     }
     return map
-  }, [boardItems, columns])
+  }, [filteredBoardItems, columns])
 
   function handleDragStart({ active }: DragStartEvent) {
     const item = items.find((i) => i.id === active.id)
@@ -99,22 +108,43 @@ export default function BoardScreen() {
 
     if (!targetStatus || targetStatus === draggedItem.status) return
 
-    // Optimistic update
-    setItems((prev) => prev.map((i) => i.id === draggedItem.id ? { ...i, status: targetStatus! } : i))
+    // Optimistic update in cache
+    const snapshot = queryClient.getQueryData<BacklogItem[]>(QUERY_KEYS.backlogItems) ?? []
+    queryClient.setQueryData<BacklogItem[]>(QUERY_KEYS.backlogItems,
+      (old = []) => old.map((i) => i.id === draggedItem.id ? { ...i, status: targetStatus! } : i)
+    )
     try {
       const updated = await patchBacklogItem(draggedItem.id, { status: targetStatus })
-      setItems((prev) => prev.map((i) => i.id === updated.id ? updated : i))
+      queryClient.setQueryData<BacklogItem[]>(QUERY_KEYS.backlogItems,
+        (old = []) => old.map((i) => i.id === updated.id ? updated : i)
+      )
     } catch {
-      // Rollback
-      setItems((prev) => prev.map((i) => i.id === draggedItem.id ? draggedItem : i))
+      queryClient.setQueryData(QUERY_KEYS.backlogItems, snapshot)
     }
   }
 
   function handleSaved(updated: BacklogItem) {
-    setItems((prev) => prev.map((i) => i.id === updated.id ? updated : i))
+    queryClient.setQueryData<BacklogItem[]>(QUERY_KEYS.backlogItems,
+      (old = []) => old.map((i) => i.id === updated.id ? updated : i)
+    )
   }
 
-  if (loading) return <div className="text-center py-20 text-slate-400">Cargando...</div>
+  if (loading) return (
+    <div className="flex gap-4 h-full">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="flex-1 min-w-[220px] flex flex-col gap-2">
+          <div className="h-5 w-24 rounded bg-muted animate-pulse mb-1" />
+          {Array.from({ length: 4 }).map((_, j) => (
+            <div key={j} className="rounded-lg border bg-white p-3 flex flex-col gap-2">
+              <div className="h-3 w-full rounded bg-muted animate-pulse" />
+              <div className="h-3 w-3/4 rounded bg-muted animate-pulse" />
+              <div className="h-3 w-1/2 rounded bg-muted animate-pulse mt-1" />
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
 
   if (products.length === 0) {
     return (
@@ -128,22 +158,68 @@ export default function BoardScreen() {
   return (
     <div className="flex flex-col h-full gap-4">
       {/* Toolbar */}
-      <div className="flex items-center gap-4">
-        <h1 className="text-2xl font-semibold">Board</h1>
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="text-2xl font-semibold mr-2">Board</h1>
         <select
           value={selectedProductId}
           onChange={(e) => setSelectedProductId(e.target.value)}
-          className="border rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+          className="border rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 font-medium"
         >
+          <option value="__all__">Todos los productos</option>
           {products.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
-        {selectedProduct && (
-          <span className="text-sm text-slate-500">
-            {boardItems.length} items
-          </span>
+        <div className="w-px h-5 bg-border mx-1" />
+        <input
+          type="text"
+          placeholder="Buscar..."
+          value={filterSearch}
+          onChange={(e) => setFilterSearch(e.target.value)}
+          className="border rounded px-3 py-1.5 text-sm w-40 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+        />
+        <select
+          value={filterPriority}
+          onChange={(e) => setFilterPriority(e.target.value)}
+          className="border rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+        >
+          <option value="">Prioridad</option>
+          {Object.entries(PRIORITY_CONFIG).map(([k, v]) => (
+            <option key={k} value={k}>{v.label}</option>
+          ))}
+        </select>
+        <select
+          value={filterAssignee}
+          onChange={(e) => setFilterAssignee(e.target.value)}
+          className="border rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+        >
+          <option value="">Asignado</option>
+          {developers.map((d) => (
+            <option key={d.id} value={d.name}>{d.name}</option>
+          ))}
+        </select>
+        <select
+          value={filterSprint}
+          onChange={(e) => setFilterSprint(e.target.value)}
+          className="border rounded px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+        >
+          <option value="">Sprint</option>
+          <option value="__none__">Sin sprint</option>
+          {sprints.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
+          ))}
+        </select>
+        {hasFilters && (
+          <button
+            onClick={() => { setFilterSearch(''); setFilterPriority(''); setFilterAssignee(''); setFilterSprint('') }}
+            className="text-sm text-slate-400 hover:text-slate-600 px-2"
+          >
+            Limpiar
+          </button>
         )}
+        <span className="text-sm text-slate-500 ml-auto">
+          {filteredBoardItems.length}{hasFilters ? `/${boardItems.length}` : ''} items
+        </span>
       </div>
 
       {/* Kanban columns */}

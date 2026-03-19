@@ -43,6 +43,34 @@ export default {
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
+        'status-critical': {
+          DEFAULT: 'hsl(var(--status-critical-bg))',
+          fg: 'hsl(var(--status-critical-fg))',
+        },
+        'status-high': {
+          DEFAULT: 'hsl(var(--status-high-bg))',
+          fg: 'hsl(var(--status-high-fg))',
+        },
+        'status-medium': {
+          DEFAULT: 'hsl(var(--status-medium-bg))',
+          fg: 'hsl(var(--status-medium-fg))',
+        },
+        'status-neutral': {
+          DEFAULT: 'hsl(var(--status-neutral-bg))',
+          fg: 'hsl(var(--status-neutral-fg))',
+        },
+        'status-progress': {
+          DEFAULT: 'hsl(var(--status-progress-bg))',
+          fg: 'hsl(var(--status-progress-fg))',
+        },
+        'status-review': {
+          DEFAULT: 'hsl(var(--status-review-bg))',
+          fg: 'hsl(var(--status-review-fg))',
+        },
+        'status-done': {
+          DEFAULT: 'hsl(var(--status-done-bg))',
+          fg: 'hsl(var(--status-done-fg))',
+        },
       },
     },
   },

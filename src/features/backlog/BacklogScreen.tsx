@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import {
   createColumnHelper,
@@ -8,20 +8,24 @@ import {
   useReactTable,
   type SortingState,
 } from '@tanstack/react-table'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getBacklogItems, getProducts, getDevelopers, getSprints, getMilestones } from '@/api/client'
-import type { BacklogItem, Product, Developer, Sprint, Milestone } from '@/domain/types'
+import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
+import type { BacklogItem } from '@/domain/types'
 import { PRIORITY_CONFIG, STATUS_CONFIG, ITEM_TYPE_CONFIG } from '@/domain/enums'
 import ItemEditPanel from './ItemEditPanel'
 
 const columnHelper = createColumnHelper<BacklogItem>()
 
 export default function BacklogScreen() {
-  const [items, setItems] = useState<BacklogItem[]>([])
-  const [products, setProducts] = useState<Product[]>([])
-  const [developers, setDevelopers] = useState<Developer[]>([])
-  const [sprints, setSprints] = useState<Sprint[]>([])
-  const [milestones, setMilestones] = useState<Milestone[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  const { data: items = [], isLoading: l1 }     = useQuery({ queryKey: QUERY_KEYS.backlogItems, queryFn: getBacklogItems, staleTime: STALE_TIMES.backlogItems })
+  const { data: products = [], isLoading: l2 }  = useQuery({ queryKey: QUERY_KEYS.products,     queryFn: getProducts,     staleTime: STALE_TIMES.products })
+  const { data: developers = [], isLoading: l3 }= useQuery({ queryKey: QUERY_KEYS.developers,   queryFn: getDevelopers,   staleTime: STALE_TIMES.developers })
+  const { data: sprints = [], isLoading: l4 }   = useQuery({ queryKey: QUERY_KEYS.sprints,      queryFn: getSprints,      staleTime: STALE_TIMES.sprints })
+  const { data: milestones = [], isLoading: l5 }= useQuery({ queryKey: QUERY_KEYS.milestones,   queryFn: getMilestones,   staleTime: STALE_TIMES.milestones })
+  const loading = l1 || l2 || l3 || l4 || l5
+
   const [sorting, setSorting] = useState<SortingState>([])
   const [selectedItem, setSelectedItem] = useState<BacklogItem | null>(null)
 
@@ -33,25 +37,9 @@ export default function BacklogScreen() {
   const [filterSprint, setFilterSprint] = useState('')
   const [filterSearch, setFilterSearch] = useState('')
 
-  useEffect(() => {
-    Promise.all([
-      getBacklogItems(),
-      getProducts(),
-      getDevelopers(),
-      getSprints(),
-      getMilestones(),
-    ]).then(([items, prods, devs, sprts, miles]) => {
-      setItems(items)
-      setProducts(prods)
-      setDevelopers(devs)
-      setSprints(sprts)
-      setMilestones(miles)
-    }).finally(() => setLoading(false))
-  }, [])
-
-  const productMap = useMemo(() => Object.fromEntries(products.map((p) => [p.id, p])), [products])
-  const sprintMap = useMemo(() => Object.fromEntries(sprints.map((s) => [s.id, s])), [sprints])
-  const milestoneMap = useMemo(() => Object.fromEntries(milestones.map((m) => [m.id, m])), [milestones])
+  const productMap  = useMemo(() => Object.fromEntries(products.map((p) => [p.id, p])), [products])
+  const sprintMap   = useMemo(() => Object.fromEntries(sprints.map((s) => [s.id, s])), [sprints])
+  const milestoneMap= useMemo(() => Object.fromEntries(milestones.map((m) => [m.id, m])), [milestones])
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -70,8 +58,10 @@ export default function BacklogScreen() {
   }, [items, filterProduct, filterStatus, filterPriority, filterAssignee, filterSprint, filterSearch])
 
   const handleSaved = useCallback((updated: BacklogItem) => {
-    setItems((prev) => prev.map((i) => i.id === updated.id ? updated : i))
-  }, [])
+    queryClient.setQueryData<BacklogItem[]>(QUERY_KEYS.backlogItems, (old = []) =>
+      old.map((i) => i.id === updated.id ? updated : i)
+    )
+  }, [queryClient])
 
   const columns = useMemo(() => [
     columnHelper.accessor('externalId', {
@@ -293,7 +283,22 @@ export default function BacklogScreen() {
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-slate-400">Cargando...</div>
+        <div className="overflow-x-auto rounded-lg border bg-white">
+          <table className="w-full text-sm">
+            <tbody>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <tr key={i} className="border-t">
+                  <td className="px-3 py-3"><div className="h-3 w-12 rounded bg-muted animate-pulse" /></td>
+                  <td className="px-3 py-3"><div className="h-3 w-48 rounded bg-muted animate-pulse" /></td>
+                  <td className="px-3 py-3"><div className="h-3 w-20 rounded bg-muted animate-pulse" /></td>
+                  <td className="px-3 py-3"><div className="h-3 w-16 rounded bg-muted animate-pulse" /></td>
+                  <td className="px-3 py-3"><div className="h-3 w-24 rounded bg-muted animate-pulse" /></td>
+                  <td className="px-3 py-3"><div className="h-3 w-16 rounded bg-muted animate-pulse" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : items.length === 0 ? (
         <div className="text-center py-12 text-slate-400">
           <p className="text-lg mb-2">No hay items en el backlog</p>

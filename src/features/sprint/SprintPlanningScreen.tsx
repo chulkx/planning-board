@@ -1,33 +1,30 @@
 import { useEffect, useState, useMemo } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getSprints, createSprint, getBacklogItems, getDevelopers, patchBacklogItem, getProducts } from '@/api/client'
+import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
 import { request } from '@/api/internal'
-import type { Sprint, BacklogItem, Developer, Product } from '@/domain/types'
+import type { Sprint, BacklogItem } from '@/domain/types'
 import { PRIORITY_CONFIG, STATUS_CONFIG } from '@/domain/enums'
 
 export default function SprintPlanningScreen() {
-  const [sprints, setSprints] = useState<Sprint[]>([])
-  const [items, setItems] = useState<BacklogItem[]>([])
-  const [developers, setDevelopers] = useState<Developer[]>([])
-  const [products, setProducts] = useState<Product[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  const { data: sprints = [], isLoading: l1 }   = useQuery({ queryKey: QUERY_KEYS.sprints,      queryFn: getSprints,      staleTime: STALE_TIMES.sprints })
+  const { data: items = [], isLoading: l2 }     = useQuery({ queryKey: QUERY_KEYS.backlogItems, queryFn: getBacklogItems, staleTime: STALE_TIMES.backlogItems })
+  const { data: developers = [] }               = useQuery({ queryKey: QUERY_KEYS.developers,   queryFn: getDevelopers,   staleTime: STALE_TIMES.developers })
+  const { data: products = [] }                 = useQuery({ queryKey: QUERY_KEYS.products,     queryFn: getProducts,     staleTime: STALE_TIMES.products })
+  const loading = l1 || l2
+
   const [selectedSprintId, setSelectedSprintId] = useState<string>('')
   const [showNewSprint, setShowNewSprint] = useState(false)
   const [newSprintName, setNewSprintName] = useState('')
   const [newSprintStart, setNewSprintStart] = useState('')
   const [newSprintEnd, setNewSprintEnd] = useState('')
   const [saving, setSaving] = useState(false)
+  const [sprintViewMode, setSprintViewMode] = useState<'list' | 'by-dev'>('list')
 
   useEffect(() => {
-    Promise.all([getSprints(), getBacklogItems(), getDevelopers(), getProducts()])
-      .then(([sprts, its, devs, prods]) => {
-        setSprints(sprts)
-        setItems(its)
-        setDevelopers(devs)
-        setProducts(prods)
-        if (sprts.length > 0) setSelectedSprintId(sprts[0].id)
-      })
-      .finally(() => setLoading(false))
-  }, [])
+    if (sprints.length > 0 && !selectedSprintId) setSelectedSprintId(sprints[0].id)
+  }, [sprints, selectedSprintId])
 
   const selectedSprint = useMemo(() => sprints.find((s) => s.id === selectedSprintId) ?? null, [sprints, selectedSprintId])
 
@@ -63,7 +60,7 @@ export default function SprintPlanningScreen() {
         startDate: newSprintStart || undefined,
         endDate: newSprintEnd || undefined,
       })
-      setSprints((prev) => [s, ...prev])
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sprints })
       setSelectedSprintId(s.id)
       setShowNewSprint(false)
       setNewSprintName('')
@@ -76,26 +73,77 @@ export default function SprintPlanningScreen() {
 
   async function handleAddToSprint(itemId: string) {
     if (!selectedSprintId) return
-    const updated = await patchBacklogItem(itemId, { sprintId: selectedSprintId })
-    setItems((prev) => prev.map((i) => i.id === updated.id ? updated : i))
+    await patchBacklogItem(itemId, { sprintId: selectedSprintId })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.backlogItems })
   }
 
   async function handleRemoveFromSprint(itemId: string) {
-    const updated = await patchBacklogItem(itemId, { sprintId: null })
-    setItems((prev) => prev.map((i) => i.id === updated.id ? updated : i))
+    await patchBacklogItem(itemId, { sprintId: null })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.backlogItems })
   }
 
   async function handleDeleteSprint() {
     if (!selectedSprintId) return
     if (!confirm('¿Eliminar este sprint? Los items quedarán sin sprint asignado.')) return
     await request(`/sprints/${selectedSprintId}`, { method: 'DELETE' })
-    const updated = sprints.filter((s) => s.id !== selectedSprintId)
-    setSprints(updated)
-    setItems((prev) => prev.map((i) => i.sprintId === selectedSprintId ? { ...i, sprintId: null } : i))
-    setSelectedSprintId(updated[0]?.id ?? '')
+    const next = sprints.filter((s) => s.id !== selectedSprintId)
+    setSelectedSprintId(next[0]?.id ?? '')
+    await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sprints })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.backlogItems })
   }
 
   const productMap = useMemo(() => Object.fromEntries(products.map((p) => [p.id, p])), [products])
+
+  // SP used per product in sprint
+  const capacityByProduct = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const item of sprintItems) {
+      const key = item.productId ?? '__none__'
+      map[key] = (map[key] ?? 0) + (item.effortStoryPoints ?? 0)
+    }
+    return map
+  }, [sprintItems])
+
+  // Sprint items grouped by assignee
+  const itemsByDev = useMemo(() => {
+    const map: Record<string, BacklogItem[]> = {}
+    for (const item of sprintItems) {
+      const keys = item.assigneeIds.length > 0 ? item.assigneeIds : ['__none__']
+      for (const name of keys) map[name] = [...(map[name] ?? []), item]
+    }
+    return map
+  }, [sprintItems])
+
+  // Burndown: remaining items per day within the sprint
+  const burndownData = useMemo(() => {
+    if (!selectedSprint?.startDate || !selectedSprint?.endDate) return []
+    const start = new Date(selectedSprint.startDate)
+    const end   = new Date(selectedSprint.endDate)
+    const today = new Date()
+    const effectiveEnd = today < end ? today : end
+    const total = sprintItems.length
+    if (total === 0 || start > effectiveEnd) return []
+
+    const totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86400000))
+    const days: Array<{ label: string; remaining: number; ideal: number; isToday: boolean }> = []
+    const cur = new Date(start)
+    let d = 0
+    while (cur <= effectiveEnd) {
+      const dayEnd = new Date(cur); dayEnd.setHours(23, 59, 59, 999)
+      const completed = sprintItems.filter(
+        (i) => i.status === 'done' && i.updatedAt && new Date(i.updatedAt) <= dayEnd
+      ).length
+      days.push({
+        label: cur.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }),
+        remaining: total - completed,
+        ideal: Math.round(total * (1 - d / totalDays)),
+        isToday: cur.toDateString() === today.toDateString(),
+      })
+      cur.setDate(cur.getDate() + 1)
+      d++
+    }
+    return days
+  }, [selectedSprint, sprintItems])
 
   if (loading) return <div className="text-center py-20 text-slate-400">Cargando...</div>
 
@@ -241,46 +289,108 @@ export default function SprintPlanningScreen() {
               </div>
             </div>
 
-            {/* Capacity bars */}
-            {developers.length > 0 && (
-              <div className="bg-slate-50 rounded-lg p-4">
-                <h3 className="text-sm font-medium text-slate-600 mb-3">Carga por developer (story points)</h3>
-                <div className="space-y-2">
-                  {developers
-                    .filter((d) => (capacityByDev[d.name] ?? 0) > 0 || d.capacityPerSprint > 0)
-                    .map((dev) => {
-                      const used = capacityByDev[dev.name] ?? 0
-                      const cap = dev.capacityPerSprint
-                      const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : null
-                      return (
-                        <div key={dev.id}>
-                          <div className="flex items-center justify-between text-xs mb-1">
-                            <span className="text-slate-600">{dev.name}</span>
-                            <span className={`font-medium ${pct !== null && pct > 100 ? 'text-red-600' : 'text-slate-500'}`}>
-                              {used}{cap > 0 ? ` / ${cap} pts` : ' pts'}
-                            </span>
-                          </div>
-                          {cap > 0 && (
-                            <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all ${pct! > 100 ? 'bg-red-500' : pct! > 80 ? 'bg-amber-400' : 'bg-indigo-500'}`}
-                                style={{ width: `${pct}%` }}
-                              />
+            {/* Capacity panels: dev load + product breakdown */}
+            {(developers.length > 0 || Object.keys(capacityByProduct).length > 0) && (
+              <div className="grid grid-cols-2 gap-3">
+                {/* Dev capacity */}
+                {developers.length > 0 && (
+                  <div className="bg-slate-50 rounded-lg p-3">
+                    <h3 className="text-xs font-medium text-slate-600 mb-2">Carga por developer</h3>
+                    <div className="space-y-2">
+                      {developers
+                        .filter((d) => (capacityByDev[d.name] ?? 0) > 0 || d.capacityPerSprint > 0)
+                        .map((dev) => {
+                          const used = capacityByDev[dev.name] ?? 0
+                          const cap = dev.capacityPerSprint
+                          const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : null
+                          return (
+                            <div key={dev.id}>
+                              <div className="flex items-center justify-between text-xs mb-1">
+                                <span className="text-slate-600">{dev.name}</span>
+                                <span className={`font-medium ${pct !== null && pct > 100 ? 'text-red-600' : 'text-slate-500'}`}>
+                                  {used}{cap > 0 ? `/${cap}` : ''} pts
+                                </span>
+                              </div>
+                              {cap > 0 && (
+                                <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full transition-all ${pct! > 100 ? 'bg-red-500' : pct! > 80 ? 'bg-amber-400' : 'bg-indigo-500'}`}
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                </div>
+                          )
+                        })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Product breakdown */}
+                {totalSP > 0 && (
+                  <div className="bg-slate-50 rounded-lg p-3">
+                    <h3 className="text-xs font-medium text-slate-600 mb-2">Distribución por producto</h3>
+                    <div className="space-y-2">
+                      {Object.entries(capacityByProduct)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([pid, sp]) => {
+                          const prod = pid !== '__none__' ? productMap[pid] : null
+                          const pct = Math.round((sp / totalSP) * 100)
+                          return (
+                            <div key={pid}>
+                              <div className="flex items-center justify-between text-xs mb-1">
+                                <span className="flex items-center gap-1.5">
+                                  {prod?.color && <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: prod.color }} />}
+                                  <span className="text-slate-600 truncate">{prod?.name ?? 'Sin producto'}</span>
+                                </span>
+                                <span className="text-slate-500 font-medium shrink-0 ml-2">{sp} pts · {pct}%</span>
+                              </div>
+                              <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full rounded-full transition-all"
+                                  style={{ width: `${pct}%`, backgroundColor: prod?.color ?? '#94a3b8' }}
+                                />
+                              </div>
+                            </div>
+                          )
+                        })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Burndown chart */}
+            {burndownData.length > 1 && (
+              <div className="bg-slate-50 rounded-lg p-3">
+                <h3 className="text-xs font-medium text-slate-600 mb-2">Burndown</h3>
+                <BurndownChart data={burndownData} total={sprintItems.length} />
               </div>
             )}
 
             {/* Sprint items */}
-            <div className="flex-1 overflow-y-auto">
-              <h3 className="text-sm font-medium text-slate-600 mb-2">Items del sprint</h3>
+            <div className="flex-1 overflow-y-auto min-h-0">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-medium text-slate-600">Items del sprint</h3>
+                <div className="flex text-xs border rounded overflow-hidden">
+                  <button
+                    onClick={() => setSprintViewMode('list')}
+                    className={`px-2 py-1 ${sprintViewMode === 'list' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}`}
+                  >
+                    Lista
+                  </button>
+                  <button
+                    onClick={() => setSprintViewMode('by-dev')}
+                    className={`px-2 py-1 ${sprintViewMode === 'by-dev' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100'}`}
+                  >
+                    Por developer
+                  </button>
+                </div>
+              </div>
+
               {sprintItems.length === 0 ? (
                 <p className="text-sm text-slate-400">Sin items. Usá las flechas del backlog para agregar.</p>
-              ) : (
+              ) : sprintViewMode === 'list' ? (
                 <div className="space-y-1.5">
                   {sprintItems.map((item) => (
                     <BacklogRow
@@ -288,16 +398,39 @@ export default function SprintPlanningScreen() {
                       item={item}
                       productColor={item.productId ? productMap[item.productId]?.color : undefined}
                       action={
-                        <button
-                          onClick={() => handleRemoveFromSprint(item.id)}
-                          className="text-xs text-slate-400 hover:text-red-500 shrink-0 px-2"
-                          title="Quitar del sprint"
-                        >
-                          ×
-                        </button>
+                        <button onClick={() => handleRemoveFromSprint(item.id)} className="text-xs text-slate-400 hover:text-red-500 shrink-0 px-2" title="Quitar del sprint">×</button>
                       }
                     />
                   ))}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {[...Object.entries(itemsByDev)].sort(([a], [b]) => a === '__none__' ? 1 : b === '__none__' ? -1 : a.localeCompare(b)).map(([devName, devItems]) => {
+                    const sp = devItems.reduce((s, i) => s + (i.effortStoryPoints ?? 0), 0)
+                    const done = devItems.filter((i) => i.status === 'done').length
+                    return (
+                      <div key={devName}>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-xs font-medium text-slate-700">
+                            {devName === '__none__' ? 'Sin asignar' : devName}
+                          </span>
+                          <span className="text-xs text-slate-400">{done}/{devItems.length} · {sp} pts</span>
+                        </div>
+                        <div className="space-y-1.5">
+                          {devItems.map((item) => (
+                            <BacklogRow
+                              key={item.id}
+                              item={item}
+                              productColor={item.productId ? productMap[item.productId]?.color : undefined}
+                              action={
+                                <button onClick={() => handleRemoveFromSprint(item.id)} className="text-xs text-slate-400 hover:text-red-500 shrink-0 px-2" title="Quitar del sprint">×</button>
+                              }
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -305,6 +438,57 @@ export default function SprintPlanningScreen() {
         )}
       </div>
     </div>
+  )
+}
+
+function BurndownChart({
+  data,
+  total,
+}: {
+  data: Array<{ label: string; remaining: number; ideal: number; isToday: boolean }>
+  total: number
+}) {
+  const W = 400, H = 90
+  const padL = 24, padR = 8, padT = 6, padB = 20
+  const cW = W - padL - padR
+  const cH = H - padT - padB
+  const n = data.length
+
+  const x = (i: number) => padL + (i / (n - 1)) * cW
+  const y = (v: number) => padT + cH - (v / total) * cH
+
+  const idealPath = `M${x(0)},${y(total)} L${x(n - 1)},${y(0)}`
+  const actualPath = data.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(p.remaining)}`).join(' ')
+
+  // Show x labels at most every ~5 days
+  const step = Math.ceil(n / 6)
+  const labelIdxs = data.map((_, i) => i).filter((i) => i % step === 0 || i === n - 1)
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 90 }}>
+      {/* Today marker */}
+      {data.findIndex((p) => p.isToday) >= 0 && (
+        <line
+          x1={x(data.findIndex((p) => p.isToday))}
+          x2={x(data.findIndex((p) => p.isToday))}
+          y1={padT} y2={padT + cH}
+          stroke="#94a3b8" strokeWidth="1" strokeDasharray="2,2"
+        />
+      )}
+      {/* Ideal line */}
+      <path d={idealPath} stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="4,3" fill="none" />
+      {/* Actual line */}
+      <path d={actualPath} stroke="#6366f1" strokeWidth="2" fill="none" strokeLinejoin="round" />
+      {/* X axis labels */}
+      {labelIdxs.map((i) => (
+        <text key={i} x={x(i)} y={H - 4} textAnchor="middle" fontSize="8" fill="#94a3b8">
+          {data[i].label}
+        </text>
+      ))}
+      {/* Y axis: 0 and total */}
+      <text x={padL - 4} y={padT + 4} textAnchor="end" fontSize="8" fill="#94a3b8">{total}</text>
+      <text x={padL - 4} y={padT + cH} textAnchor="end" fontSize="8" fill="#94a3b8">0</text>
+    </svg>
   )
 }
 

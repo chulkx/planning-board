@@ -1,10 +1,13 @@
 import { useEffect, useState, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import {
   getProducts, createProduct, patchProduct, deleteProduct,
   getDevelopers, createDeveloper, patchDeveloper, deleteDeveloper,
   getImportHistory, getConfig, patchConfig,
 } from '@/api/client'
-import type { Product, Developer, ImportSnapshot, AppConfig } from '@/domain/types'
+import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
+import type { AppConfig } from '@/domain/types'
 import { EFFORT_UNIT_LABELS, type EffortUnit } from '@/domain/enums'
 
 const COLORS = [
@@ -29,21 +32,23 @@ export default function SettingsScreen() {
 // ─── App Config ───────────────────────────────────────────────────────────────
 
 function AppConfigSection() {
-  const [config, setConfig] = useState<AppConfig | null>(null)
+  const queryClient = useQueryClient()
+  const { data: config } = useQuery({ queryKey: QUERY_KEYS.config, queryFn: getConfig, staleTime: STALE_TIMES.config })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-
-  useEffect(() => { getConfig().then(setConfig) }, [])
 
   async function handleChange(unit: EffortUnit) {
     if (!config) return
     setSaving(true)
     setSaved(false)
     try {
-      const updated = await patchConfig({ defaultEffortUnit: unit })
-      setConfig(updated)
+      await patchConfig({ defaultEffortUnit: unit })
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.config })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
+      toast.success('Configuración guardada')
+    } catch {
+      toast.error('Error al guardar la configuración')
     } finally {
       setSaving(false)
     }
@@ -105,9 +110,12 @@ function BackupSection() {
         throw new Error(err.error ?? res.statusText)
       }
       const data = await res.json()
-      setRestoreMsg({ ok: true, text: `Restaurado: ${data.products} productos, ${data.backlogItems} items, ${data.developers} developers.` })
+      const msg = `Restaurado: ${data.products} productos, ${data.backlogItems} items, ${data.developers} developers.`
+      setRestoreMsg({ ok: true, text: msg })
+      toast.success(msg)
     } catch (err) {
       setRestoreMsg({ ok: false, text: String(err) })
+      toast.error(`Error al restaurar: ${String(err)}`)
     } finally {
       setRestoring(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -155,12 +163,7 @@ function BackupSection() {
 // ─── Import History ───────────────────────────────────────────────────────────
 
 function ImportHistorySection() {
-  const [history, setHistory] = useState<ImportSnapshot[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    getImportHistory().then(setHistory).finally(() => setLoading(false))
-  }, [])
+  const { data: history = [], isLoading: loading } = useQuery({ queryKey: QUERY_KEYS.importHistory, queryFn: getImportHistory, staleTime: STALE_TIMES.importHistory })
 
   return (
     <section>
@@ -214,31 +217,27 @@ function ImportHistorySection() {
 // ─── Products ────────────────────────────────────────────────────────────────
 
 function ProductsSection() {
-  const [products, setProducts] = useState<Product[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  const { data: products = [], isLoading: loading } = useQuery({ queryKey: QUERY_KEYS.products, queryFn: getProducts, staleTime: STALE_TIMES.products })
   const [editId, setEditId] = useState<string | null>(null)
   const [showNew, setShowNew] = useState(false)
 
-  useEffect(() => {
-    getProducts().then(setProducts).finally(() => setLoading(false))
-  }, [])
-
   async function handleCreate(name: string, color: string) {
-    const p = await createProduct({ name, color })
-    setProducts((prev) => [...prev, p])
+    await createProduct({ name, color })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.products })
     setShowNew(false)
   }
 
   async function handleUpdate(id: string, name: string, color: string) {
-    const p = await patchProduct(id, { name, color })
-    setProducts((prev) => prev.map((x) => x.id === id ? p : x))
+    await patchProduct(id, { name, color })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.products })
     setEditId(null)
   }
 
   async function handleDelete(id: string) {
     if (!confirm('¿Eliminar este producto? Los items quedarán sin producto asignado.')) return
     await deleteProduct(id)
-    setProducts((prev) => prev.filter((x) => x.id !== id))
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.products })
   }
 
   return (
@@ -367,31 +366,27 @@ function ProductForm({
 // ─── Developers ──────────────────────────────────────────────────────────────
 
 function DevelopersSection() {
-  const [developers, setDevelopers] = useState<Developer[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  const { data: developers = [], isLoading: loading } = useQuery({ queryKey: QUERY_KEYS.developers, queryFn: getDevelopers, staleTime: STALE_TIMES.developers })
   const [editId, setEditId] = useState<string | null>(null)
   const [showNew, setShowNew] = useState(false)
 
-  useEffect(() => {
-    getDevelopers().then(setDevelopers).finally(() => setLoading(false))
-  }, [])
-
   async function handleCreate(name: string, capacity: number) {
-    const d = await createDeveloper({ name, capacityPerSprint: capacity })
-    setDevelopers((prev) => [...prev, d])
+    await createDeveloper({ name, capacityPerSprint: capacity })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.developers })
     setShowNew(false)
   }
 
   async function handleUpdate(id: string, name: string, capacity: number) {
-    const d = await patchDeveloper(id, { name, capacityPerSprint: capacity })
-    setDevelopers((prev) => prev.map((x) => x.id === id ? d : x))
+    await patchDeveloper(id, { name, capacityPerSprint: capacity })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.developers })
     setEditId(null)
   }
 
   async function handleDelete(id: string) {
     if (!confirm('¿Eliminar este developer?')) return
     await deleteDeveloper(id)
-    setDevelopers((prev) => prev.filter((x) => x.id !== id))
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.developers })
   }
 
   return (

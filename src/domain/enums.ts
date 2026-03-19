@@ -74,24 +74,24 @@ export const CSV_ITEM_TYPE_MAP: Record<string, ItemType> = {
 // --- UI metadata (colors, labels) ---
 
 export const PRIORITY_CONFIG: Record<Priority, { label: string; color: string; bgColor: string }> = {
-  critical: { label: 'Crítico', color: 'text-red-700', bgColor: 'bg-red-100' },
-  high: { label: 'Alto', color: 'text-orange-700', bgColor: 'bg-orange-100' },
-  medium: { label: 'Medio', color: 'text-yellow-700', bgColor: 'bg-yellow-100' },
-  low: { label: 'Bajo', color: 'text-slate-600', bgColor: 'bg-slate-100' },
+  critical: { label: 'Crítico', color: 'text-status-critical-fg', bgColor: 'bg-status-critical' },
+  high:     { label: 'Alto',    color: 'text-status-high-fg',     bgColor: 'bg-status-high' },
+  medium:   { label: 'Medio',   color: 'text-status-medium-fg',   bgColor: 'bg-status-medium' },
+  low:      { label: 'Bajo',    color: 'text-status-neutral-fg',  bgColor: 'bg-status-neutral' },
 }
 
 export const STATUS_CONFIG: Record<BacklogStatus, { label: string; color: string; bgColor: string }> = {
-  'not-started': { label: 'No iniciado', color: 'text-slate-600', bgColor: 'bg-slate-100' },
-  'in-progress': { label: 'En curso', color: 'text-blue-700', bgColor: 'bg-blue-100' },
-  'review': { label: 'Revisión', color: 'text-purple-700', bgColor: 'bg-purple-100' },
-  'done': { label: 'Completado', color: 'text-green-700', bgColor: 'bg-green-100' },
-  'cancelled': { label: 'Cancelado', color: 'text-slate-400', bgColor: 'bg-slate-50' },
+  'not-started': { label: 'No iniciado', color: 'text-status-neutral-fg',  bgColor: 'bg-status-neutral' },
+  'in-progress': { label: 'En curso',    color: 'text-status-progress-fg', bgColor: 'bg-status-progress' },
+  'review':      { label: 'Revisión',    color: 'text-status-review-fg',   bgColor: 'bg-status-review' },
+  'done':        { label: 'Completado',  color: 'text-status-done-fg',     bgColor: 'bg-status-done' },
+  'cancelled':   { label: 'Cancelado',   color: 'text-status-neutral-fg',  bgColor: 'bg-status-neutral' },
 }
 
 export const ITEM_TYPE_CONFIG: Record<ItemType, { label: string; color: string }> = {
-  bug: { label: 'Bug', color: 'text-red-600' },
-  feature: { label: 'Funcionalidad', color: 'text-blue-600' },
-  task: { label: 'Tarea', color: 'text-slate-600' },
+  bug:     { label: 'Bug',           color: 'text-status-critical-fg' },
+  feature: { label: 'Funcionalidad', color: 'text-status-progress-fg' },
+  task:    { label: 'Tarea',         color: 'text-status-neutral-fg' },
 }
 
 export const EFFORT_UNIT_LABELS: Record<EffortUnit, string> = {

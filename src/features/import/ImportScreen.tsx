@@ -1,12 +1,16 @@
 import { useState, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { previewImport, commitImport, getConfig, patchConfig } from '@/api/client'
+import { QUERY_KEYS } from '@/api/queries'
 import type { ImportPreviewResult, AppConfig, CsvMappingProfile } from '@/domain/types'
 import { randomUUID } from '@/lib/uuid'
 
 type Step = 'upload' | 'map' | 'preview' | 'done'
 
 export default function ImportScreen() {
+  const queryClient = useQueryClient()
   const [step, setStep] = useState<Step>('upload')
   const [csvContent, setCsvContent] = useState('')
   const [filename, setFilename] = useState('import.csv')
@@ -59,8 +63,14 @@ export default function ImportScreen() {
       const r = await commitImport(csvContent, mappings, filename)
       setResult({ created: r.created, updated: r.updated, skipped: r.skipped })
       setStep('done')
+      toast.success(`Importación completada: ${r.created} creados, ${r.updated} actualizados, ${r.skipped} sin cambios`)
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.backlogItems })
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.products })
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.developers })
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.importHistory })
     } catch (e) {
       setError(String(e))
+      toast.error(`Error al importar: ${String(e)}`)
     } finally {
       setLoading(false)
     }

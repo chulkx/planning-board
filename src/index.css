@@ -45,6 +45,60 @@
   --input: 214.3 31.8% 91.4%;
   --ring: 222.2 84% 4.9%;
   --radius: 0.5rem;
+
+  --status-critical-bg: 0 84% 92%;
+  --status-critical-fg: 0 72% 28%;
+  --status-high-bg: 25 95% 88%;
+  --status-high-fg: 25 90% 30%;
+  --status-medium-bg: 48 96% 82%;
+  --status-medium-fg: 40 80% 25%;
+  --status-neutral-bg: 215 16% 90%;
+  --status-neutral-fg: 215 16% 35%;
+  --status-progress-bg: 217 91% 88%;
+  --status-progress-fg: 217 80% 28%;
+  --status-review-bg: 270 67% 88%;
+  --status-review-fg: 270 60% 30%;
+  --status-done-bg: 142 71% 82%;
+  --status-done-fg: 142 60% 22%;
+}
+
+.dark {
+  /* ── Neutral gray palette (no blue tint) ── */
+  --background: 0 0% 9%;          /* #171717 */
+  --foreground: 0 0% 93%;         /* #ededed */
+  --card: 20 4% 13%;              /* #222120 — barely warm, distinguishes cards */
+  --card-foreground: 0 0% 93%;
+  --popover: 0 0% 13%;
+  --popover-foreground: 0 0% 93%;
+  --primary: 0 0% 93%;
+  --primary-foreground: 0 0% 9%;
+  --secondary: 0 0% 17%;          /* #2b2b2b */
+  --secondary-foreground: 0 0% 93%;
+  --muted: 0 0% 17%;
+  --muted-foreground: 0 0% 55%;   /* #8c8c8c */
+  --accent: 0 0% 20%;
+  --accent-foreground: 0 0% 93%;
+  --destructive: 0 55% 42%;
+  --destructive-foreground: 0 0% 93%;
+  --border: 0 0% 21%;             /* #363636 */
+  --input: 0 0% 17%;
+  --ring: 0 0% 65%;
+
+  /* ── Status tokens — muted, colorful enough to read ── */
+  --status-critical-bg: 0 35% 17%;
+  --status-critical-fg: 0 70% 68%;
+  --status-high-bg: 22 35% 17%;
+  --status-high-fg: 22 75% 65%;
+  --status-medium-bg: 42 30% 16%;
+  --status-medium-fg: 42 70% 62%;
+  --status-neutral-bg: 0 0% 20%;
+  --status-neutral-fg: 0 0% 57%;
+  --status-progress-bg: 210 25% 18%;
+  --status-progress-fg: 210 60% 68%;
+  --status-review-bg: 265 25% 19%;
+  --status-review-fg: 265 55% 74%;
+  --status-done-bg: 142 25% 15%;
+  --status-done-fg: 142 50% 60%;
 }
 
 * {
@@ -55,4 +109,88 @@ body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Transición suave solo durante el cambio de tema — evita conflictos con hover */
+.theme-transitioning,
+.theme-transitioning * {
+  transition:
+    background-color 0.25s ease,
+    color 0.2s ease,
+    border-color 0.2s ease !important;
+}
+
+/* ── Dark mode overrides for hardcoded Tailwind color classes ────────────
+   These selectors have higher specificity (.dark .class) than the
+   base utilities (.class), so they win without !important.
+   ──────────────────────────────────────────────────────────────────────── */
+@layer utilities {
+  /* Backgrounds — neutral gray scale */
+  .dark .bg-white     { background-color: hsl(207deg 5.28% 22.12%); }   /* matches --card */
+  .dark .bg-slate-50  { background-color: hsl(0 0% 12%); }
+  .dark .bg-slate-100 { background-color: hsl(0 0% 17%); }
+  .dark .bg-slate-200 { background-color: hsl(0 0% 21%); }
+  .dark .bg-slate-800 { background-color: hsl(0 0% 12%); }
+  .dark .hover\:bg-slate-50:hover  { background-color: hsl(0 0% 15%); }
+  .dark .hover\:bg-slate-100:hover { background-color: hsl(0 0% 20%); }
+
+  /* Text — neutral grays */
+  .dark .text-slate-900 { color: hsl(0 0% 93%); }
+  .dark .text-slate-800 { color: hsl(0 0% 90%); }
+  .dark .text-slate-700 { color: hsl(0 0% 80%); }
+  .dark .text-slate-600 { color: hsl(0 0% 65%); }
+  .dark .text-slate-500 { color: hsl(0 0% 55%); }
+  .dark .text-slate-400 { color: hsl(0 0% 45%); }
+  .dark .text-slate-300 { color: hsl(0 0% 35%); }
+
+  /* Borders */
+  .dark .border-slate-200 { border-color: hsl(var(--border)); }
+  .dark .border-slate-300 { border-color: hsl(var(--border)); }
+
+  /* Inputs & selects */
+  .dark input,
+  .dark select,
+  .dark textarea {
+    background-color: hsl(0 0% 17%);
+    color: hsl(0 0% 93%);
+    border-color: hsl(var(--border));
+  }
+
+  /* Indigo accent — toned down, no harsh blue */
+  .dark .bg-indigo-50           { background-color: hsl(240 15% 17%); }
+  .dark .text-indigo-600        { color: hsl(240 55% 72%); }
+  .dark .hover\:text-indigo-600:hover { color: hsl(240 55% 78%); }
+  .dark .text-indigo-800        { color: hsl(240 55% 78%); }
+
+  /* Amber */
+  .dark .bg-amber-50    { background-color: hsl(38 25% 14%); }
+  .dark .bg-amber-100   { background-color: hsl(38 25% 18%); }
+  .dark .bg-amber-200   { background-color: hsl(38 30% 22%); }
+  .dark .text-amber-800 { color: hsl(38 70% 68%); }
+  .dark .text-amber-700 { color: hsl(38 65% 62%); }
+  .dark .text-amber-600 { color: hsl(38 60% 58%); }
+  .dark .bg-amber-400   { background-color: hsl(38 65% 42%); }
+  .dark .bg-amber-500   { background-color: hsl(38 65% 48%); }
+
+  /* Violet */
+  .dark .bg-violet-50   { background-color: hsl(263 20% 16%); }
+  .dark .text-violet-700 { color: hsl(263 55% 72%); }
+
+  /* Red (errors, destructive) */
+  .dark .bg-red-50      { background-color: hsl(0 30% 14%); }
+  .dark .border-red-200 { border-color: hsl(0 30% 24%); }
+  .dark .text-red-700   { color: hsl(0 65% 65%); }
+  .dark .text-red-400   { color: hsl(0 55% 55%); }
+  .dark .text-red-500   { color: hsl(0 60% 60%); }
+  .dark .text-red-600   { color: hsl(0 62% 62%); }
+  .dark .hover\:text-red-600:hover { color: hsl(0 65% 68%); }
+  .dark .hover\:text-red-500:hover { color: hsl(0 60% 63%); }
+
+  /* Green */
+  .dark .text-green-600 { color: hsl(142 45% 55%); }
+  .dark .text-green-700 { color: hsl(142 45% 50%); }
+
+  /* Drag-drop drop zone */
+  .dark .border-dashed  { border-color: hsl(0 0% 28%); }
+  .dark .border-indigo-200 { border-color: hsl(240 15% 28%); }
 }
