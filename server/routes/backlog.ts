@@ -173,6 +173,33 @@ backlogRouter.patch('/:id', (req, res) => {
     }
   }
 
+  // Autoestado: if actual hours recorded but status still not-started, promote to in-progress
+  const afterPatch = db.prepare('SELECT status, effort_actual_hours FROM backlog_items WHERE id = ?').get(req.params.id) as { status: string; effort_actual_hours: number | null }
+  if (afterPatch.status === 'not-started' && (afterPatch.effort_actual_hours ?? 0) > 0) {
+    db.prepare("UPDATE backlog_items SET status = 'in-progress', updated_at = ? WHERE id = ?").run(new Date().toISOString(), req.params.id)
+    db.prepare(`INSERT INTO item_events (id, item_id, event_type, field, old_value, new_value, source) VALUES (?, ?, 'status_changed', 'status', '"not-started"', '"in-progress"', 'automation')`).run(randomUUID(), req.params.id)
+  }
+
   const updated = db.prepare('SELECT * FROM backlog_items WHERE id = ?').get(req.params.id) as Record<string, unknown>
-  res.json(deserializeItem(updated))
+  const result = deserializeItem(updated)
+
+  // WIP check: if status was changed, check WIP limit for the target column
+  let wip: { exceeded: boolean; current: number; limit: number } | undefined
+  if ('status' in updates && updates.status) {
+    const targetStatus = (result as BacklogItem).status
+    const productId = (result as BacklogItem).productId
+    if (productId) {
+      const prod = db.prepare('SELECT board_columns FROM products WHERE id = ?').get(productId) as { board_columns: string } | undefined
+      if (prod) {
+        const cols = JSON.parse(prod.board_columns ?? '[]') as Array<{ name: string; wipLimit: number | null }>
+        const col = cols.find(c => c.name === targetStatus)
+        if (col && col.wipLimit != null) {
+          const count = (db.prepare('SELECT COUNT(*) as cnt FROM backlog_items WHERE product_id = ? AND status = ?').get(productId, targetStatus) as { cnt: number }).cnt
+          wip = { exceeded: count > col.wipLimit, current: count, limit: col.wipLimit }
+        }
+      }
+    }
+  }
+
+  res.json(wip ? { ...result, wip } : result)
 })

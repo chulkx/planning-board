@@ -4,6 +4,15 @@ import db from '../db.js'
 
 export const productsRouter = Router()
 
+interface BoardColumn { name: string; wipLimit: number | null }
+
+const DEFAULT_COLUMNS: BoardColumn[] = [
+  { name: 'not-started', wipLimit: null },
+  { name: 'in-progress', wipLimit: null },
+  { name: 'review', wipLimit: null },
+  { name: 'done', wipLimit: null },
+]
+
 productsRouter.get('/', (_req, res) => {
   const rows = db.prepare('SELECT * FROM products ORDER BY name').all()
   res.json(rows.map(deserialize))
@@ -13,11 +22,11 @@ productsRouter.post('/', (req, res) => {
   const { name, color = '#6366f1', boardColumns } = req.body as {
     name: string
     color?: string
-    boardColumns?: string[]
+    boardColumns?: BoardColumn[]
   }
   if (!name) { res.status(400).json({ error: 'name is required' }); return }
   const id = randomUUID()
-  const cols = boardColumns ?? ['not-started', 'in-progress', 'review', 'done']
+  const cols = boardColumns ?? DEFAULT_COLUMNS
   db.prepare('INSERT INTO products (id, name, color, board_columns) VALUES (?, ?, ?, ?)').run(id, name, color, JSON.stringify(cols))
   res.status(201).json(deserialize(db.prepare('SELECT * FROM products WHERE id = ?').get(id) as Record<string, unknown>))
 })
@@ -25,7 +34,7 @@ productsRouter.post('/', (req, res) => {
 productsRouter.patch('/:id', (req, res) => {
   const row = db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id)
   if (!row) { res.status(404).json({ error: 'Not found' }); return }
-  const { name, color, boardColumns } = req.body as { name?: string; color?: string; boardColumns?: string[] }
+  const { name, color, boardColumns } = req.body as { name?: string; color?: string; boardColumns?: BoardColumn[] }
   const sets: string[] = []
   const vals: unknown[] = []
   if (name) { sets.push('name = ?'); vals.push(name) }
@@ -47,7 +56,7 @@ function deserialize(row: Record<string, unknown>) {
     id: row.id,
     name: row.name,
     color: row.color,
-    boardColumns: JSON.parse(row.board_columns as string ?? '[]'),
+    boardColumns: JSON.parse(row.board_columns as string ?? '[]') as BoardColumn[],
     createdAt: row.created_at,
   }
 }

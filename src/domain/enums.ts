@@ -3,7 +3,7 @@
 
 export type Priority = 'critical' | 'high' | 'medium' | 'low'
 export type BacklogStatus = 'not-started' | 'in-progress' | 'blocked' | 'review' | 'done' | 'cancelled'
-export type SprintStatus = 'planned' | 'active' | 'completed'
+export type SprintStatus = 'planned' | 'active' | 'completed' | 'closed'
 export type MilestoneStatus = 'planned' | 'active' | 'completed'
 export type ItemType = 'bug' | 'feature' | 'task'
 export type EffortUnit = 'story-points' | 'hours-estimated' | 'hours-quoted' | 'hours-actual'

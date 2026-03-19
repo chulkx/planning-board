@@ -14,7 +14,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getBacklogItems, getProducts, getDevelopers, getSprints, getMilestones, patchBacklogItem } from '@/api/client'
 import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
-import type { BacklogItem } from '@/domain/types'
+import type { BacklogItem, BoardColumn } from '@/domain/types'
 import { PRIORITY_CONFIG, STATUS_CONFIG, type BacklogStatus } from '@/domain/enums'
 import ItemEditPanel from '@/features/backlog/ItemEditPanel'
 
@@ -48,8 +48,13 @@ export default function BoardScreen() {
     [products, selectedProductId]
   )
 
-  const columns: BacklogStatus[] = useMemo(
-    () => (selectedProduct?.boardColumns as BacklogStatus[]) ?? ['not-started', 'in-progress', 'review', 'done'],
+  const columns: BoardColumn[] = useMemo(
+    () => selectedProduct?.boardColumns ?? [
+      { name: 'not-started', wipLimit: null },
+      { name: 'in-progress', wipLimit: null },
+      { name: 'review', wipLimit: null },
+      { name: 'done', wipLimit: null },
+    ],
     [selectedProduct]
   )
 
@@ -74,12 +79,12 @@ export default function BoardScreen() {
 
   const byColumn = useMemo(() => {
     const map: Record<string, BacklogItem[]> = {}
-    for (const col of columns) map[col] = []
+    for (const col of columns) map[col.name] = []
     for (const item of filteredBoardItems) {
       if (map[item.status]) map[item.status].push(item)
       else {
         const first = columns[0]
-        if (first) map[first].push(item)
+        if (first) map[first.name].push(item)
       }
     }
     return map
@@ -99,7 +104,7 @@ export default function BoardScreen() {
 
     // Determine target column: over.id is either a column id or an item id
     let targetStatus: BacklogStatus | null = null
-    if (columns.includes(over.id as BacklogStatus)) {
+    if (columns.some(c => c.name === over.id)) {
       targetStatus = over.id as BacklogStatus
     } else {
       const overItem = items.find((i) => i.id === over.id)
@@ -226,14 +231,15 @@ export default function BoardScreen() {
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="flex gap-4 overflow-x-auto pb-4 flex-1 items-start">
           {columns.map((col) => {
-            const colItems = byColumn[col] ?? []
-            const cfg = STATUS_CONFIG[col]
+            const colItems = byColumn[col.name] ?? []
+            const cfg = STATUS_CONFIG[col.name as BacklogStatus]
             return (
               <KanbanColumn
-                key={col}
-                id={col}
+                key={col.name}
+                id={col.name}
                 label={cfg.label}
                 items={colItems}
+                wipLimit={col.wipLimit}
                 onEditItem={setEditItem}
                 activeId={activeItem?.id ?? null}
               />
@@ -265,12 +271,14 @@ interface ColumnProps {
   id: string
   label: string
   items: BacklogItem[]
+  wipLimit: number | null
   onEditItem: (item: BacklogItem) => void
   activeId: string | null
 }
 
-function KanbanColumn({ id, label, items, onEditItem, activeId }: ColumnProps) {
+function KanbanColumn({ id, label, items, wipLimit, onEditItem, activeId }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id })
+  const wipExceeded = wipLimit != null && items.length > wipLimit
 
   return (
     <div
@@ -282,7 +290,13 @@ function KanbanColumn({ id, label, items, onEditItem, activeId }: ColumnProps) {
       {/* Column header */}
       <div className="px-3 py-2.5 flex items-center justify-between">
         <span className="text-sm font-medium text-slate-600">{label}</span>
-        <span className="text-xs text-slate-400 bg-white rounded-full px-2 py-0.5">{items.length}</span>
+        <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${
+          wipExceeded
+            ? 'bg-red-100 text-red-600'
+            : 'bg-white text-slate-400'
+        }`}>
+          {wipLimit != null ? `${items.length}/${wipLimit}` : items.length}
+        </span>
       </div>
 
       {/* Cards */}

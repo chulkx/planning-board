@@ -7,7 +7,8 @@ import {
   getImportHistory, getConfig, patchConfig,
 } from '@/api/client'
 import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
-import { EFFORT_UNIT_LABELS, type EffortUnit } from '@/domain/enums'
+import { EFFORT_UNIT_LABELS, STATUS_CONFIG, type EffortUnit } from '@/domain/enums'
+import type { BoardColumn } from '@/domain/types'
 
 const COLORS = [
   '#6366f1', '#f59e0b', '#10b981', '#3b82f6',
@@ -222,13 +223,13 @@ function ProductsSection() {
   const [showNew, setShowNew] = useState(false)
 
   async function handleCreate(name: string, color: string) {
-    await createProduct({ name, color })
+    await createProduct({ name, color } as { name: string; color: string })
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.products })
     setShowNew(false)
   }
 
-  async function handleUpdate(id: string, name: string, color: string) {
-    await patchProduct(id, { name, color })
+  async function handleUpdate(id: string, name: string, color: string, boardColumns?: BoardColumn[]) {
+    await patchProduct(id, { name, color, ...(boardColumns ? { boardColumns } : {}) })
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.products })
     setEditId(null)
   }
@@ -262,8 +263,8 @@ function ProductsSection() {
           <div key={p.id} className="px-4 py-3">
             {editId === p.id ? (
               <ProductForm
-                initial={{ name: p.name, color: p.color }}
-                onSave={(name, color) => handleUpdate(p.id, name, color)}
+                initial={{ name: p.name, color: p.color, boardColumns: p.boardColumns }}
+                onSave={(name, color, boardColumns) => handleUpdate(p.id, name, color, boardColumns)}
                 onCancel={() => setEditId(null)}
               />
             ) : (
@@ -309,43 +310,72 @@ function ProductForm({
   onSave,
   onCancel,
 }: {
-  initial: { name: string; color: string }
-  onSave: (name: string, color: string) => Promise<void>
+  initial: { name: string; color: string; boardColumns?: BoardColumn[] }
+  onSave: (name: string, color: string, boardColumns?: BoardColumn[]) => Promise<void>
   onCancel: () => void
 }) {
   const [name, setName] = useState(initial.name)
   const [color, setColor] = useState(initial.color)
+  const [boardColumns, setBoardColumns] = useState<BoardColumn[] | undefined>(initial.boardColumns)
   const [saving, setSaving] = useState(false)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) return
     setSaving(true)
-    try { await onSave(name.trim(), color) }
+    try { await onSave(name.trim(), color, boardColumns) }
     finally { setSaving(false) }
   }
 
+  function setWipLimit(colName: string, value: string) {
+    setBoardColumns(cols => cols?.map(c =>
+      c.name === colName ? { ...c, wipLimit: value === '' ? null : Math.max(1, parseInt(value) || 1) } : c
+    ))
+  }
+
   return (
-    <form onSubmit={submit} className="flex items-center gap-3 flex-wrap">
-      <input
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Nombre del producto"
-        className="border rounded px-3 py-1.5 text-sm flex-1 min-w-40 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-        autoFocus
-      />
-      <div className="flex gap-1.5 flex-wrap">
-        {COLORS.map((c) => (
-          <button
-            key={c}
-            type="button"
-            onClick={() => setColor(c)}
-            className={`w-6 h-6 rounded-full border-2 transition-all ${color === c ? 'border-slate-700 scale-110' : 'border-transparent'}`}
-            style={{ backgroundColor: c }}
-          />
-        ))}
+    <form onSubmit={submit} className="flex flex-col gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Nombre del producto"
+          className="border rounded px-3 py-1.5 text-sm flex-1 min-w-40 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+          autoFocus
+        />
+        <div className="flex gap-1.5 flex-wrap">
+          {COLORS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setColor(c)}
+              className={`w-6 h-6 rounded-full border-2 transition-all ${color === c ? 'border-slate-700 scale-110' : 'border-transparent'}`}
+              style={{ backgroundColor: c }}
+            />
+          ))}
+        </div>
       </div>
+      {boardColumns && boardColumns.length > 0 && (
+        <div className="border rounded p-3 bg-slate-50">
+          <p className="text-xs font-medium text-slate-500 mb-2">Límites WIP por columna (dejar vacío = sin límite)</p>
+          <div className="grid grid-cols-2 gap-2">
+            {boardColumns.map(col => (
+              <div key={col.name} className="flex items-center gap-2">
+                <span className="text-xs text-slate-600 w-28 truncate">{STATUS_CONFIG[col.name as keyof typeof STATUS_CONFIG]?.label ?? col.name}</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={col.wipLimit ?? ''}
+                  onChange={e => setWipLimit(col.name, e.target.value)}
+                  placeholder="∞"
+                  className="border rounded px-2 py-1 text-xs w-16 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="flex gap-2">
         <button
           type="submit"

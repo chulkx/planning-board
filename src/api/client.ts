@@ -163,3 +163,13 @@ export function patchMilestone(id: string, data: Record<string, unknown>): Promi
 export function deleteMilestone(id: string): Promise<void> {
   return request(`/milestones/${id}`, { method: 'DELETE' })
 }
+
+// --- Sprint close ---
+
+export function getSprintClosePreview(id: string): Promise<import('@/domain/types').SprintClosePreview> {
+  return request(`/sprints/${id}/close-preview`)
+}
+
+export function closeSprint(id: string): Promise<import('@/domain/types').Sprint> {
+  return request(`/sprints/${id}/close`, { method: 'POST' })
+}

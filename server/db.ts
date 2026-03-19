@@ -207,6 +207,21 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_snapshots_date   ON sprint_daily_snapshots(snapshot_date);
     `),
   },
+  {
+    version: 6,
+    description: 'board_columns: transform string arrays to {name, wipLimit} objects',
+    up: (db) => {
+      const products = db.prepare('SELECT id, board_columns FROM products').all() as Array<{ id: string; board_columns: string }>
+      const update = db.prepare('UPDATE products SET board_columns = ? WHERE id = ?')
+      db.transaction(() => {
+        for (const p of products) {
+          const cols = JSON.parse(p.board_columns ?? '[]') as Array<string | { name: string; wipLimit: number | null }>
+          const newCols = cols.map(c => typeof c === 'string' ? { name: c, wipLimit: null } : c)
+          update.run(JSON.stringify(newCols), p.id)
+        }
+      })()
+    },
+  },
 ]
 
 export function migrate() {

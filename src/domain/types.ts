@@ -7,6 +7,11 @@ import type {
   EffortUnit,
 } from './enums'
 
+export interface BoardColumn {
+  name: BacklogStatus
+  wipLimit: number | null
+}
+
 export interface BacklogItem {
   id: string
   externalId: string | null
@@ -51,7 +56,7 @@ export interface Product {
   id: string
   name: string
   color: string
-  boardColumns: BacklogStatus[]
+  boardColumns: BoardColumn[]
   createdAt: string
 }
 
@@ -188,4 +193,18 @@ export interface VelocityResponse {
 export interface CfdResponse {
   dates: string[]
   series: Array<{ status: string; counts: number[] }>
+}
+
+export interface SprintClosePreviewItem {
+  id: string
+  title: string
+  status: string
+  productId: string | null
+  destination: { type: 'sprint'; sprintId: string; sprintName: string } | { type: 'backlog' }
+}
+
+export interface SprintClosePreview {
+  sprint: Sprint
+  completedCount: number
+  incompleteItems: SprintClosePreviewItem[]
 }

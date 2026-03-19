@@ -1,8 +1,8 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getSprints, createSprint, getBacklogItems, getDevelopers, patchBacklogItem, getProducts, getSprintBurndown, getVelocity, deleteSprint } from '@/api/client'
+import { getSprints, createSprint, getBacklogItems, getDevelopers, patchBacklogItem, getProducts, getSprintBurndown, getVelocity, deleteSprint, getSprintClosePreview, closeSprint } from '@/api/client'
 import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
-import type { BacklogItem } from '@/domain/types'
+import type { BacklogItem, SprintClosePreview } from '@/domain/types'
 import { PRIORITY_CONFIG, STATUS_CONFIG } from '@/domain/enums'
 
 export default function SprintPlanningScreen() {
@@ -20,6 +20,8 @@ export default function SprintPlanningScreen() {
   const [newSprintEnd, setNewSprintEnd] = useState('')
   const [saving, setSaving] = useState(false)
   const [sprintViewMode, setSprintViewMode] = useState<'list' | 'by-dev'>('list')
+  const [closePreview, setClosePreview] = useState<SprintClosePreview | null>(null)
+  const [closing, setClosing] = useState(false)
 
   useEffect(() => {
     if (sprints.length > 0 && !selectedSprintId) setSelectedSprintId(sprints[0].id)
@@ -89,6 +91,25 @@ export default function SprintPlanningScreen() {
     setSelectedSprintId(next[0]?.id ?? '')
     await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sprints })
     queryClient.invalidateQueries({ queryKey: QUERY_KEYS.backlogItems })
+  }
+
+  async function handleOpenClose() {
+    if (!selectedSprintId) return
+    const preview = await getSprintClosePreview(selectedSprintId)
+    setClosePreview(preview)
+  }
+
+  async function handleConfirmClose() {
+    if (!selectedSprintId || !closePreview) return
+    setClosing(true)
+    try {
+      await closeSprint(selectedSprintId)
+      setClosePreview(null)
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sprints })
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.backlogItems })
+    } finally {
+      setClosing(false)
+    }
   }
 
   const productMap = useMemo(() => Object.fromEntries(products.map((p) => [p.id, p])), [products])
@@ -243,6 +264,15 @@ export default function SprintPlanningScreen() {
         </div>
       </div>
 
+      {closePreview && (
+        <CloseSprintModal
+          preview={closePreview}
+          closing={closing}
+          onConfirm={handleConfirmClose}
+          onCancel={() => setClosePreview(null)}
+        />
+      )}
+
       {/* Right: Sprint detail */}
       <div className="flex-1 min-w-0 flex flex-col gap-4">
         {!selectedSprint ? (
@@ -261,6 +291,14 @@ export default function SprintPlanningScreen() {
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-sm text-slate-500">{sprintItems.length} items · {totalSP} pts</span>
+                {selectedSprint.status !== 'closed' && (
+                  <button
+                    onClick={handleOpenClose}
+                    className="text-xs text-amber-600 hover:text-amber-800 border border-amber-200 rounded px-2 py-1"
+                  >
+                    Cerrar sprint
+                  </button>
+                )}
                 <button
                   onClick={handleDeleteSprint}
                   className="text-xs text-red-400 hover:text-red-600 border border-red-200 rounded px-2 py-1"
@@ -514,6 +552,87 @@ function BurndownChart({
       <text x={padL - 4} y={padT + 4} textAnchor="end" fontSize="8" fill="#94a3b8">{total}</text>
       <text x={padL - 4} y={padT + cH} textAnchor="end" fontSize="8" fill="#94a3b8">0</text>
     </svg>
+  )
+}
+
+function CloseSprintModal({
+  preview,
+  closing,
+  onConfirm,
+  onCancel,
+}: {
+  preview: SprintClosePreview
+  closing: boolean
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  const toSprint = preview.incompleteItems.filter(i => i.destination.type === 'sprint')
+  const toBacklog = preview.incompleteItems.filter(i => i.destination.type === 'backlog')
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
+        <div className="px-6 py-4 border-b">
+          <h2 className="text-lg font-semibold">Cerrar sprint: {preview.sprint.name}</h2>
+          <p className="text-sm text-slate-500 mt-1">
+            {preview.completedCount} items completados · {preview.incompleteItems.length} incompletos
+          </p>
+        </div>
+
+        <div className="px-6 py-4 max-h-96 overflow-y-auto space-y-4">
+          {preview.incompleteItems.length === 0 ? (
+            <p className="text-sm text-slate-500">Todos los items están completados.</p>
+          ) : (
+            <>
+              {toSprint.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-slate-500 mb-2">Se moverán al siguiente sprint:</p>
+                  <div className="space-y-1">
+                    {toSprint.map(item => (
+                      <div key={item.id} className="flex items-center justify-between text-sm bg-slate-50 rounded px-3 py-1.5">
+                        <span className="truncate text-slate-700">{item.title}</span>
+                        <span className="text-xs text-indigo-600 shrink-0 ml-2">
+                          {item.destination.type === 'sprint' ? item.destination.sprintName : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {toBacklog.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-slate-500 mb-2">Vuelven al backlog (sin sprint siguiente):</p>
+                  <div className="space-y-1">
+                    {toBacklog.map(item => (
+                      <div key={item.id} className="flex items-center text-sm bg-amber-50 rounded px-3 py-1.5">
+                        <span className="truncate text-slate-700">{item.title}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t flex justify-end gap-3">
+          <button
+            onClick={onCancel}
+            disabled={closing}
+            className="text-sm text-slate-500 hover:text-slate-700 px-4 py-2"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={closing}
+            className="text-sm bg-amber-600 text-white px-4 py-2 rounded hover:bg-amber-700 disabled:opacity-50"
+          >
+            {closing ? 'Cerrando...' : 'Confirmar cierre'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

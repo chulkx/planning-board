@@ -76,6 +76,102 @@ sprintsRouter.delete('/:id', (req, res) => {
   res.status(204).end()
 })
 
+// --- Close sprint ---
+
+function buildClosePreview(sprintId: string) {
+  const sprint = db.prepare('SELECT * FROM sprints WHERE id = ?').get(sprintId) as Record<string, unknown> | undefined
+  if (!sprint) return null
+
+  const productIds = JSON.parse(sprint.product_ids as string ?? '[]') as string[]
+
+  // Find next planned sprint per product
+  const nextSprintByProduct: Record<string, { id: string; name: string } | null> = {}
+  for (const pid of productIds) {
+    const next = db.prepare(`
+      SELECT id, name FROM sprints
+      WHERE status = 'planned' AND id != ? AND product_ids LIKE ?
+      ORDER BY start_date ASC, created_at ASC LIMIT 1
+    `).get(sprintId, `%${pid}%`) as { id: string; name: string } | undefined
+    nextSprintByProduct[pid] = next ?? null
+  }
+
+  const incompleteItems = db.prepare(`
+    SELECT id, title, status, product_id FROM backlog_items
+    WHERE sprint_id = ? AND status NOT IN ('done')
+  `).all(sprintId) as Array<{ id: string; title: string; status: string; product_id: string | null }>
+
+  const completedCount = (db.prepare(`SELECT COUNT(*) as cnt FROM backlog_items WHERE sprint_id = ? AND status = 'done'`).get(sprintId) as { cnt: number }).cnt
+
+  return {
+    sprint: deserialize(sprint),
+    completedCount,
+    incompleteItems: incompleteItems.map(item => {
+      const next = item.product_id ? nextSprintByProduct[item.product_id] : null
+      return {
+        id: item.id,
+        title: item.title,
+        status: item.status,
+        productId: item.product_id,
+        destination: next ? { type: 'sprint', sprintId: next.id, sprintName: next.name } : { type: 'backlog' },
+      }
+    }),
+  }
+}
+
+sprintsRouter.get('/:id/close-preview', (req, res) => {
+  const preview = buildClosePreview(req.params.id)
+  if (!preview) { res.status(404).json({ error: 'Not found' }); return }
+  res.json(preview)
+})
+
+sprintsRouter.post('/:id/close', (req, res) => {
+  const sprint = db.prepare('SELECT * FROM sprints WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined
+  if (!sprint) { res.status(404).json({ error: 'Not found' }); return }
+  if (sprint.status === 'closed') { res.status(400).json({ error: 'Sprint already closed' }); return }
+
+  const preview = buildClosePreview(req.params.id)!
+  const closedAt = new Date().toISOString()
+
+  db.transaction(() => {
+    // Update sprint status
+    db.prepare("UPDATE sprints SET status = 'closed', closed_at = ? WHERE id = ?").run(closedAt, req.params.id)
+
+    // Update completed_story_points in sprint
+    const completedSP = (db.prepare(`
+      SELECT COALESCE(SUM(effort_story_points), 0) as total
+      FROM backlog_items WHERE sprint_id = ? AND status = 'done'
+    `).get(req.params.id) as { total: number }).total
+    db.prepare('UPDATE sprints SET completed_story_points = ? WHERE id = ?').run(completedSP, req.params.id)
+
+    // Update sprint_product_metrics completed SP
+    const productIds = JSON.parse(sprint.product_ids as string ?? '[]') as string[]
+    for (const pid of productIds) {
+      const result = db.prepare(`
+        SELECT COALESCE(SUM(effort_story_points), 0) as total
+        FROM backlog_items WHERE sprint_id = ? AND product_id = ? AND status = 'done'
+      `).get(req.params.id, pid) as { total: number }
+      db.prepare(`
+        INSERT INTO sprint_product_metrics (id, sprint_id, product_id, completed_story_points)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(sprint_id, product_id) DO UPDATE SET completed_story_points = excluded.completed_story_points
+      `).run(randomUUID(), req.params.id, pid, result.total)
+    }
+
+    // Move incomplete items
+    for (const item of preview.incompleteItems) {
+      const oldSprintId = req.params.id
+      const newSprintId = item.destination.type === 'sprint' ? item.destination.sprintId : null
+      db.prepare('UPDATE backlog_items SET sprint_id = ?, updated_at = ? WHERE id = ?').run(newSprintId, closedAt, item.id)
+      db.prepare(`
+        INSERT INTO item_events (id, item_id, event_type, field, old_value, new_value, source)
+        VALUES (?, ?, 'sprint_changed', 'sprintId', ?, ?, 'automation')
+      `).run(randomUUID(), item.id, JSON.stringify(oldSprintId), JSON.stringify(newSprintId))
+    }
+  })()
+
+  res.json(deserialize(db.prepare('SELECT * FROM sprints WHERE id = ?').get(req.params.id) as Record<string, unknown>))
+})
+
 sprintsRouter.get('/:id/burndown', (req, res) => {
   const sprint = db.prepare('SELECT * FROM sprints WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined
   if (!sprint) { res.status(404).json({ error: 'Not found' }); return }
