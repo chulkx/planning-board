@@ -237,3 +237,24 @@ export interface Retrospective {
   createdAt: string
   updatedAt: string
 }
+
+export interface SavedView {
+  id: string
+  name: string
+  screen: 'backlog' | 'board' | 'sprint'
+  filters: Record<string, unknown>
+  createdAt: string
+}
+
+export interface ItemEvent {
+  id: string
+  itemId: string
+  eventType: string
+  field: string | null
+  oldValue: string | null
+  newValue: string | null
+  source: 'user' | 'import' | 'automation' | 'system'
+  actor: string | null
+  metadata: Record<string, unknown> | null
+  createdAt: string
+}

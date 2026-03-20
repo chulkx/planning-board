@@ -9,6 +9,7 @@ import { sprintsRouter } from './routes/sprints.js'
 import { milestonesRouter } from './routes/milestones.js'
 import { configRouter } from './routes/config.js'
 import { reportsRouter } from './routes/reports.js'
+import { savedViewsRouter } from './routes/savedViews.js'
 import { runSnapshotJob } from './services/snapshotService.js'
 
 const app = express()
@@ -25,6 +26,7 @@ app.use('/api/v1/sprints', sprintsRouter)
 app.use('/api/v1/milestones', milestonesRouter)
 app.use('/api/v1/config', configRouter)
 app.use('/api/v1/reports', reportsRouter)
+app.use('/api/v1/saved-views', savedViewsRouter)
 
 app.get('/api/v1/health', (_req, res) => {
   res.json({ status: 'ok' })
@@ -38,6 +40,10 @@ app.get('/api/v1/exports/json', (_req, res) => {
     sprints: db.prepare('SELECT * FROM sprints').all(),
     milestones: db.prepare('SELECT * FROM milestones').all(),
     backlogItems: db.prepare('SELECT * FROM backlog_items').all(),
+    itemEvents: db.prepare('SELECT * FROM item_events').all(),
+    sprintCapacity: db.prepare('SELECT * FROM sprint_capacity').all(),
+    retrospectives: db.prepare('SELECT * FROM retrospectives').all(),
+    savedViews: db.prepare('SELECT * FROM saved_views').all(),
     config: db.prepare('SELECT * FROM app_config WHERE id = ?').get('singleton'),
   }
   res.setHeader('Content-Disposition', `attachment; filename="planning-board-backup-${new Date().toISOString().slice(0, 10)}.json"`)

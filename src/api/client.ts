@@ -199,3 +199,23 @@ export function putRetrospective(sprintId: string, data: { wentWell?: string | n
 export function patchItemParent(id: string, parentId: string | null): Promise<import('@/domain/types').BacklogItem> {
   return request(`/backlog-items/${id}/parent`, { method: 'PATCH', body: JSON.stringify({ parentId }) })
 }
+
+// --- Saved views ---
+
+export function getSavedViews(screen?: string): Promise<import('@/domain/types').SavedView[]> {
+  return request(`/saved-views${screen ? `?screen=${screen}` : ''}`)
+}
+
+export function postSavedView(data: { name: string; screen: string; filters: Record<string, unknown> }): Promise<import('@/domain/types').SavedView> {
+  return request('/saved-views', { method: 'POST', body: JSON.stringify(data) })
+}
+
+export function deleteSavedView(id: string): Promise<void> {
+  return request(`/saved-views/${id}`, { method: 'DELETE' })
+}
+
+// --- Item events ---
+
+export function getItemEvents(itemId: string): Promise<import('@/domain/types').ItemEvent[]> {
+  return request(`/backlog-items/${itemId}/events`)
+}

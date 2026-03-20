@@ -14,6 +14,8 @@ export const QUERY_KEYS = {
   cfd:            (productId: string) => ['cfd', productId] as const,
   sprintCapacity: (id: string) => ['sprint-capacity', id] as const,
   retrospective:  (id: string) => ['retrospective', id] as const,
+  savedViews: (screen?: string) => ['saved-views', screen ?? 'all'] as const,
+  itemEvents:  (itemId: string) => ['item-events', itemId] as const,
 }
 
 export const STALE_TIMES = {
@@ -29,4 +31,6 @@ export const STALE_TIMES = {
   cfd:            5 * 60_000, // 5min
   sprintCapacity: 30_000,
   retrospective:  60_000,
+  savedViews: 60_000,
+  itemEvents: 30_000,
 }

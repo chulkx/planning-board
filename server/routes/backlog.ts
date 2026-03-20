@@ -116,6 +116,19 @@ backlogRouter.patch('/:id/parent', (req, res) => {
   res.json(deserializeItem(db.prepare('SELECT * FROM backlog_items WHERE id = ?').get(req.params.id) as Record<string, unknown>))
 })
 
+backlogRouter.get('/:id/events', (req, res) => {
+  const events = db.prepare(`
+    SELECT * FROM item_events WHERE item_id = ? ORDER BY created_at ASC
+  `).all(req.params.id) as Record<string, unknown>[]
+  res.json(events.map(e => ({
+    id: e.id, itemId: e.item_id, eventType: e.event_type,
+    field: e.field, oldValue: e.old_value, newValue: e.new_value,
+    source: e.source, actor: e.actor,
+    metadata: e.metadata ? JSON.parse(e.metadata as string) : null,
+    createdAt: e.created_at,
+  })))
+})
+
 backlogRouter.patch('/:id', (req, res) => {
   const item = db.prepare('SELECT * FROM backlog_items WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined
   if (!item) { res.status(404).json({ error: 'Not found' }); return }

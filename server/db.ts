@@ -264,6 +264,33 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_retrospectives_sprint ON retrospectives(sprint_id);
     `),
   },
+  {
+    version: 10,
+    description: 'add saved_views table',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS saved_views (
+        id         TEXT PRIMARY KEY,
+        name       TEXT NOT NULL,
+        screen     TEXT NOT NULL,
+        filters    TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_saved_views_screen ON saved_views(screen);
+    `),
+  },
+  {
+    version: 11,
+    description: 'add users table',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id         TEXT PRIMARY KEY,
+        name       TEXT NOT NULL,
+        email      TEXT UNIQUE,
+        role       TEXT NOT NULL DEFAULT 'member',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `),
+  },
 ]
 
 export function migrate() {

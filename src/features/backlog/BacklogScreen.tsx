@@ -9,9 +9,9 @@ import {
   type SortingState,
 } from '@tanstack/react-table'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getBacklogItems, getProducts, getDevelopers, getSprints, getMilestones } from '@/api/client'
+import { getBacklogItems, getProducts, getDevelopers, getSprints, getMilestones, getSavedViews, postSavedView, deleteSavedView } from '@/api/client'
 import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
-import type { BacklogItem } from '@/domain/types'
+import type { BacklogItem, SavedView } from '@/domain/types'
 import { PRIORITY_CONFIG, STATUS_CONFIG, ITEM_TYPE_CONFIG } from '@/domain/enums'
 import ItemEditPanel from './ItemEditPanel'
 
@@ -25,6 +25,12 @@ export default function BacklogScreen() {
   const { data: sprints = [], isLoading: l4 }   = useQuery({ queryKey: QUERY_KEYS.sprints,      queryFn: getSprints,      staleTime: STALE_TIMES.sprints })
   const { data: milestones = [], isLoading: l5 }= useQuery({ queryKey: QUERY_KEYS.milestones,   queryFn: getMilestones,   staleTime: STALE_TIMES.milestones })
   const loading = l1 || l2 || l3 || l4 || l5
+
+  const { data: savedViews = [] } = useQuery({
+    queryKey: QUERY_KEYS.savedViews('backlog'),
+    queryFn: () => getSavedViews('backlog'),
+    staleTime: STALE_TIMES.savedViews,
+  })
 
   const [sorting, setSorting] = useState<SortingState>([])
   const [selectedItem, setSelectedItem] = useState<BacklogItem | null>(null)
@@ -63,6 +69,29 @@ export default function BacklogScreen() {
       old.map((i) => i.id === updated.id ? updated : i)
     )
   }, [queryClient])
+
+  async function handleSaveView() {
+    const name = prompt('Nombre de la vista:')
+    if (!name) return
+    const filters = { filterProduct, filterStatus, filterPriority, filterAssignee, filterSprint, filterSearch }
+    await postSavedView({ name, screen: 'backlog', filters })
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.savedViews('backlog') })
+  }
+
+  function handleLoadView(view: SavedView) {
+    const f = view.filters as Record<string, string>
+    if ('filterProduct'  in f) setFilterProduct(f.filterProduct ?? '')
+    if ('filterStatus'   in f) setFilterStatus(f.filterStatus ?? '')
+    if ('filterPriority' in f) setFilterPriority(f.filterPriority ?? '')
+    if ('filterAssignee' in f) setFilterAssignee(f.filterAssignee ?? '')
+    if ('filterSprint'   in f) setFilterSprint(f.filterSprint ?? '')
+    if ('filterSearch'   in f) setFilterSearch(f.filterSearch ?? '')
+  }
+
+  async function handleDeleteView(id: string) {
+    await deleteSavedView(id)
+    queryClient.invalidateQueries({ queryKey: QUERY_KEYS.savedViews('backlog') })
+  }
 
   const columns = useMemo(() => [
     columnHelper.accessor('externalId', {
@@ -298,6 +327,25 @@ export default function BacklogScreen() {
           </button>
         )}
       </div>
+
+      {(savedViews.length > 0 || hasFilters) && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {hasFilters && (
+            <button
+              onClick={handleSaveView}
+              className="text-xs border border-dashed border-slate-300 text-slate-500 hover:border-indigo-400 hover:text-indigo-600 px-2 py-1 rounded"
+            >
+              + Guardar vista
+            </button>
+          )}
+          {savedViews.map((view) => (
+            <div key={view.id} className="flex items-center gap-1 bg-indigo-50 text-indigo-700 text-xs px-2 py-1 rounded">
+              <button onClick={() => handleLoadView(view)} className="hover:underline">{view.name}</button>
+              <button onClick={() => handleDeleteView(view.id)} className="text-indigo-300 hover:text-red-500 ml-1">×</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {loading ? (
         <div className="overflow-x-auto rounded-lg border bg-white">
