@@ -219,3 +219,35 @@ export function deleteSavedView(id: string): Promise<void> {
 export function getItemEvents(itemId: string): Promise<import('@/domain/types').ItemEvent[]> {
   return request(`/backlog-items/${itemId}/events`)
 }
+
+// ─── R6 Analytics ─────────────────────────────────────────────────────────────
+
+export function getCycleTime(params?: { productId?: string; from?: string; to?: string }): Promise<import('@/domain/types').CycleTimeResponse> {
+  const q = new URLSearchParams()
+  if (params?.productId) q.set('productId', params.productId)
+  if (params?.from)      q.set('from', params.from)
+  if (params?.to)        q.set('to', params.to)
+  return request(`/reports/cycle-time${q.toString() ? '?' + q : ''}`)
+}
+
+export function getThroughput(params?: { productId?: string; limit?: number }): Promise<{ sprints: import('@/domain/types').ThroughputSprint[] }> {
+  const q = new URLSearchParams()
+  if (params?.productId) q.set('productId', params.productId)
+  if (params?.limit)     q.set('limit', String(params.limit))
+  return request(`/reports/throughput${q.toString() ? '?' + q : ''}`)
+}
+
+export function getWipAging(): Promise<{ items: import('@/domain/types').WipAgingItem[] }> {
+  return request('/reports/wip-aging')
+}
+
+export function getTeamLoad(sprintId?: string): Promise<import('@/domain/types').TeamLoadResponse> {
+  return request(`/reports/team-load${sprintId ? '?sprintId=' + sprintId : ''}`)
+}
+
+export function getEstimationAccuracy(params?: { productId?: string; limit?: number }): Promise<import('@/domain/types').EstimationAccuracyResponse> {
+  const q = new URLSearchParams()
+  if (params?.productId) q.set('productId', params.productId)
+  if (params?.limit)     q.set('limit', String(params.limit))
+  return request(`/reports/estimation-accuracy${q.toString() ? '?' + q : ''}`)
+}

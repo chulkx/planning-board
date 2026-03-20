@@ -10,6 +10,7 @@ import BoardScreen from '@/features/board/BoardScreen'
 import SprintPlanningScreen from '@/features/sprint/SprintPlanningScreen'
 import MilestonesScreen from '@/features/milestones/MilestonesScreen'
 import SettingsScreen from '@/features/settings/SettingsScreen'
+import AnalyticsScreen from '@/features/analytics/AnalyticsScreen'
 
 export default function App() {
   const [dark, setDark] = useState(() => {
@@ -70,6 +71,14 @@ export default function App() {
               Milestones
             </NavLink>
             <NavLink
+              to="/analytics"
+              className={({ isActive }) =>
+                isActive ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'
+              }
+            >
+              Analítica
+            </NavLink>
+            <NavLink
               to="/import"
               className={({ isActive }) =>
                 isActive ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'
@@ -100,6 +109,7 @@ export default function App() {
             <Route path="/board" element={<BoardScreen />} />
             <Route path="/sprints" element={<SprintPlanningScreen />} />
             <Route path="/milestones" element={<MilestonesScreen />} />
+            <Route path="/analytics" element={<AnalyticsScreen />} />
             <Route path="/import" element={<ImportScreen />} />
             <Route path="/settings" element={<SettingsScreen />} />
           </Routes>

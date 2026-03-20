@@ -727,9 +727,843 @@ R0 (Fundaciones)
            └── R3 (Scrum completo)
                 └── R4 (UX y productividad)
                      └── R5 (Preparación plataforma)
+                          └── R6 (Dashboard de analítica)
+                               └── R7 (Build de producción)  ← primer deploy usable
+                                    └── R8 (PostgreSQL + async)
+                                         └── R9 (Auth OAuth)
+                                              └── R10 (Multi-tenancy)
+                                                   └── R11 (Real-time WebSockets)
+                                                        └── R12 (Deploy SaaS)
 ```
 
 No iniciar un release sin haber cerrado el anterior. Cada release tiene casos de prueba que validan que el anterior no se rompió.
+
+---
+
+## R6 — Dashboard de analítica
+
+> Objetivo: pantalla `/analytics` con métricas derivadas de los datos ya existentes. Sin cambios de schema.
+
+### Endpoints nuevos (`server/routes/reports.ts`)
+
+```
+GET /api/v1/reports/cycle-time?productId&from&to
+GET /api/v1/reports/throughput?productId&limit
+GET /api/v1/reports/wip-aging
+GET /api/v1/reports/team-load?sprintId
+GET /api/v1/reports/estimation-accuracy?productId&limit
+```
+
+#### R6.1 — Cycle time
+
+Tiempo entre primer `not-started → in-progress` y `→ done` por ítem.
+
+```sql
+-- Para cada ítem: fecha del primer evento de inicio y fecha del evento done
+WITH started AS (
+  SELECT item_id, MIN(created_at) as started_at
+  FROM item_events
+  WHERE event_type = 'status_changed' AND new_value = 'in-progress'
+  GROUP BY item_id
+),
+done AS (
+  SELECT item_id, MIN(created_at) as done_at
+  FROM item_events
+  WHERE event_type = 'status_changed' AND new_value = 'done'
+  GROUP BY item_id
+)
+SELECT
+  b.id, b.title, b.item_type, b.product_id,
+  ROUND((JULIANDAY(d.done_at) - JULIANDAY(s.started_at)) * 24, 1) AS cycle_time_hours
+FROM backlog_items b
+JOIN started s ON s.item_id = b.id
+JOIN done d    ON d.item_id = b.id
+WHERE b.status = 'done'
+ORDER BY d.done_at DESC
+```
+
+Respuesta: `{ items: [...], avg: number, p50: number, p90: number }`
+
+#### R6.2 — Throughput
+
+Ítems completados por sprint.
+
+```sql
+SELECT
+  s.id, s.name, s.closed_at,
+  COUNT(CASE WHEN b.status = 'done' THEN 1 END) as completed_items,
+  COUNT(*) as total_items,
+  COALESCE(SUM(CASE WHEN b.status = 'done' THEN b.effort_story_points END), 0) as completed_sp
+FROM sprints s
+JOIN backlog_items b ON b.sprint_id = s.id
+WHERE s.status = 'closed'
+  AND (? IS NULL OR s.id IN (SELECT sprint_id FROM sprint_product_metrics WHERE product_id = ?))
+GROUP BY s.id
+ORDER BY s.closed_at DESC
+LIMIT ?
+```
+
+#### R6.3 — WIP aging
+
+Ítems actualmente en estados activos con antigüedad calculada desde el último cambio de estado.
+
+```sql
+SELECT
+  b.id, b.title, b.status, b.priority, b.product_id,
+  e.created_at as status_since,
+  ROUND((JULIANDAY('now') - JULIANDAY(e.created_at)) * 24, 1) AS hours_in_status
+FROM backlog_items b
+JOIN item_events e ON e.id = (
+  SELECT id FROM item_events
+  WHERE item_id = b.id AND event_type = 'status_changed'
+  ORDER BY created_at DESC LIMIT 1
+)
+WHERE b.status IN ('in-progress', 'review', 'blocked')
+ORDER BY hours_in_status DESC
+```
+
+#### R6.4 — Team load
+
+Para un sprint: SP asignados por developer vs capacidad.
+
+```sql
+SELECT
+  d.id, d.name,
+  COALESCE(sc.capacity_hours, d.capacity_per_sprint * 8) as capacity_hours,
+  sc.capacity_story_points,
+  COUNT(b.id) as assigned_items,
+  COALESCE(SUM(b.effort_story_points), 0) as assigned_sp,
+  COALESCE(SUM(b.effort_estimated_hours), 0) as assigned_hours
+FROM developers d
+LEFT JOIN sprint_capacity sc ON sc.developer_id = d.id AND sc.sprint_id = ?
+LEFT JOIN backlog_items b ON b.sprint_id = ? AND b.assignee_ids LIKE '%' || d.name || '%'
+GROUP BY d.id
+```
+
+#### R6.5 — Estimation accuracy
+
+Comparar SP estimados vs completados por sprint.
+
+```sql
+SELECT
+  s.id, s.name, s.closed_at,
+  s.committed_story_points,
+  s.completed_story_points,
+  CASE
+    WHEN s.committed_story_points > 0
+    THEN ROUND(s.completed_story_points * 100.0 / s.committed_story_points, 1)
+    ELSE NULL
+  END as completion_pct
+FROM sprints s
+WHERE s.status = 'closed' AND s.committed_story_points IS NOT NULL
+ORDER BY s.closed_at DESC
+LIMIT ?
+```
+
+### Frontend
+
+#### R6.6 — `src/features/analytics/AnalyticsScreen.tsx`
+
+Cuatro tabs:
+
+##### Flujo
+
+- Histograma de cycle time (distribución en barras: 0-24h, 1-3d, 3-7d, +7d)
+- Tabla de WIP aging con color por antigüedad (verde < 2d, amarillo < 5d, rojo > 5d)
+
+##### Equipo
+
+- Throughput por sprint (barras: ítems completados + SP)
+- Team load del sprint activo seleccionado (barra de capacidad por developer, semáforo)
+
+##### Estimaciones
+
+- Tabla accuracy por sprint (committed vs completed, % cumplimiento)
+- Destaque de ítems sin story points definidos (deuda de estimación)
+
+##### Retrospectivas
+
+- Línea de tiempo de sprints cerrados con excerpt de went_well / to_improve
+- Progreso de action items: ítems con done=true vs total por sprint
+
+#### R6.7 — Ruta y nav link
+
+```tsx
+// src/App.tsx
+<Route path="/analytics" element={<AnalyticsScreen />} />
+```
+
+```tsx
+// src/components/Header.tsx
+<NavLink to="/analytics">Analítica</NavLink>
+```
+
+### Casos de prueba R6
+
+- [ ] Cycle time calcula correctamente cuando un ítem volvió a `in-progress` después de `review`
+- [ ] WIP aging ordena correctamente por antigüedad y colorea según umbrales
+- [ ] Team load del sprint activo refleja inmediatamente un cambio de asignación en el backlog
+- [ ] Estimation accuracy muestra `—` para sprints sin `committed_story_points`
+- [ ] Todos los paneles muestran estado vacío amigable cuando no hay datos suficientes
+
+---
+
+## R7 — Build de producción
+
+> Objetivo: poder correr la app desde el build compilado sin Vite. Un solo proceso, un solo puerto. Primera versión usable fuera del entorno de desarrollo.
+
+### Por qué este release antes del SaaS
+
+Mientras se desarrollan R8-R12 (PostgreSQL, auth, multi-tenancy), el equipo puede usar la versión compilada de R6+R7 en una máquina de la LAN o servidor interno. No hace falta esperar al SaaS completo para tener algo deployable.
+
+### R7.1 — Variables de entorno
+
+Crear `server/config.ts`:
+
+```typescript
+import 'dotenv/config'
+
+export const config = {
+  port:     parseInt(process.env.PORT  ?? '3002'),
+  nodeEnv:  process.env.NODE_ENV ?? 'development',
+  dbPath:   process.env.DB_PATH  ?? 'data/planning.db',
+  isProd:   process.env.NODE_ENV === 'production',
+}
+```
+
+Crear `.env.example`:
+
+```
+PORT=3002
+NODE_ENV=development
+DB_PATH=data/planning.db
+```
+
+`.env` en `.gitignore` (ya debe estar).
+
+Reemplazar todos los valores hardcodeados en `server/index.ts` y `server/db.ts` por `config.*`.
+
+### R7.2 — Express sirve el frontend compilado en producción
+
+```typescript
+// server/index.ts
+import path from 'path'
+import { config } from './config'
+
+if (config.isProd) {
+  const distPath = path.join(process.cwd(), 'dist')
+  app.use(express.static(distPath))
+  // SPA fallback: cualquier ruta no-API devuelve index.html
+  app.get('*', (req, res) => {
+    if (!req.path.startsWith('/api/')) {
+      res.sendFile(path.join(distPath, 'index.html'))
+    }
+  })
+}
+```
+
+**Importante**: el SPA fallback debe ir DESPUÉS de montar todos los routers de la API.
+
+### R7.3 — Scripts de npm
+
+```json
+// package.json
+{
+  "scripts": {
+    "dev":     "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:client": "vite",
+    "build":   "vite build",
+    "start":   "NODE_ENV=production tsx server/index.ts",
+    "preview": "npm run build && npm run start"
+  }
+}
+```
+
+`npm run preview` hace build completo y levanta el servidor de producción local. Es el comando para verificar que todo funciona antes de deployar.
+
+### R7.4 — Logging básico
+
+Reemplazar `console.log` del servidor con un logger simple:
+
+```typescript
+// server/logger.ts
+export const logger = {
+  info:  (...args: unknown[]) => console.log('[INFO]',  new Date().toISOString(), ...args),
+  warn:  (...args: unknown[]) => console.warn('[WARN]',  new Date().toISOString(), ...args),
+  error: (...args: unknown[]) => console.error('[ERROR]', new Date().toISOString(), ...args),
+}
+```
+
+En R12 se reemplazará con `pino` para logging estructurado en JSON.
+
+### R7.5 — Health check
+
+```typescript
+// GET /api/v1/health
+app.get('/api/v1/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    version: process.env.npm_package_version ?? 'unknown',
+    uptime: process.uptime(),
+    db: 'sqlite',
+  })
+})
+```
+
+Útil para verificar que el servidor está vivo en cualquier entorno.
+
+### R7.6 — Documentación de arranque
+
+Crear `DEPLOY.md` con instrucciones mínimas:
+
+```markdown
+## Arrancar en modo producción
+
+1. `npm install`
+2. Copiar `.env.example` a `.env` y ajustar valores
+3. `npm run build`
+4. `npm start`
+
+La app queda disponible en http://localhost:3002
+Los datos se guardan en DB_PATH (por defecto: data/planning.db)
+```
+
+### Casos de prueba R7
+
+- [ ] `npm run preview` levanta sin errores y la app es usable en `localhost:3002`
+- [ ] Navegar a cualquier ruta frontend (ej: `/board`) y recargar no devuelve 404
+- [ ] `/api/v1/health` responde `{ status: 'ok' }` en modo producción
+- [ ] Variables en `.env` sobreescriben los defaults (cambiar PORT=4000 y verificar)
+- [ ] En modo desarrollo (`npm run dev`) el comportamiento no cambió
+
+---
+
+## R8 — PostgreSQL + arquitectura async
+
+> Objetivo: reemplazar SQLite/better-sqlite3 por PostgreSQL. Todo el servidor pasa a ser async. La capa de repositorios queda completa para todos los recursos.
+> **Prerrequisito**: PostgreSQL corriendo localmente (o en Docker). La app de SQLite sigue funcional hasta que este release se complete y valide.
+
+### R8.1 — Dependencias
+
+```bash
+npm install pg kysely
+npm install -D @types/pg
+```
+
+`Kysely` provee un query builder type-safe. Las queries se escriben en TypeScript, no en strings crudos.
+
+### R8.2 — Conexión y schema
+
+```typescript
+// server/db.ts — reemplazar better-sqlite3
+import { Kysely, PostgresDialect } from 'kysely'
+import { Pool } from 'pg'
+
+const pool = new Pool({
+  host:     config.dbHost,
+  port:     config.dbPort,
+  database: config.dbName,
+  user:     config.dbUser,
+  password: config.dbPassword,
+})
+
+export const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) })
+```
+
+El tipo `Database` define la forma de cada tabla — Kysely lo usa para que las queries sean type-safe:
+
+```typescript
+interface Database {
+  backlog_items: BacklogItemTable
+  sprints: SprintTable
+  // ...
+}
+```
+
+### R8.3 — Migration runner adaptado
+
+El runner actual usa `schema_versions`. Se mantiene la misma lógica pero las migrations pasan a ser async y usan sintaxis PostgreSQL:
+
+```typescript
+// Diferencias de sintaxis clave:
+// SQLite: datetime('now')  →  PostgreSQL: NOW()
+// SQLite: ?                →  PostgreSQL: $1, $2, $3
+// SQLite: TEXT para JSON   →  PostgreSQL: JSONB
+// SQLite: AUTOINCREMENT    →  PostgreSQL: SERIAL o GENERATED ALWAYS AS IDENTITY
+```
+
+### R8.4 — Completar repositorios para todos los recursos
+
+R5 creó `BacklogItemRepository`. En este release se crean los repositorios para todos los recursos:
+
+```
+server/repositories/
+  BacklogItemRepository.ts   (ya existe, adaptar a async + Kysely)
+  SprintRepository.ts
+  ProductRepository.ts
+  DeveloperRepository.ts
+  MilestoneRepository.ts
+  EventRepository.ts
+  SnapshotRepository.ts
+```
+
+Cada repositorio recibe `db: Kysely<Database>` como dependencia. Los route handlers pasan a ser delgados:
+
+```typescript
+// Antes (SQLite síncrono):
+router.get('/:id', (req, res) => {
+  const item = db.prepare('SELECT * FROM backlog_items WHERE id = ?').get(req.params.id)
+  if (!item) { res.status(404).json({ error: 'Not found' }); return }
+  res.json(deserialize(item))
+})
+
+// Después (PostgreSQL async):
+router.get('/:id', async (req, res) => {
+  const item = await backlogRepo.findById(req.params.id)
+  if (!item) { res.status(404).json({ error: 'Not found' }); return }
+  res.json(item)
+})
+```
+
+### R8.5 — Variables de entorno ampliadas
+
+```
+# .env.example (agregar)
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=planning_board
+DB_USER=postgres
+DB_PASSWORD=
+```
+
+### Casos de prueba R8
+
+- [ ] `npm run preview` funciona idéntico a R7 pero con PostgreSQL como backend
+- [ ] Backup exportado con SQLite puede restaurarse en PostgreSQL (datos compatibles)
+- [ ] Todas las migraciones corren en orden en una DB vacía
+- [ ] Cycle time y WIP aging de R6 devuelven los mismos valores que con SQLite
+
+---
+
+## R9 — Autenticación OAuth
+
+> Objetivo: login con Google (o GitHub). JWT propio firmado por el servidor. El `actor` en `item_events` pasa a ser el usuario autenticado.
+
+### R9.1 — Dependencias
+
+```bash
+npm install better-auth
+# o alternativamente:
+npm install passport passport-google-oauth20 jsonwebtoken
+npm install -D @types/passport @types/passport-google-oauth20 @types/jsonwebtoken
+```
+
+Se recomienda **Better Auth** por su integración TypeScript-first y soporte nativo para Express.
+
+### R9.2 — Variables de entorno
+
+```
+# .env.example (agregar)
+JWT_SECRET=cambiar-por-secreto-largo-aleatorio
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+FRONTEND_URL=http://localhost:5173
+```
+
+### R9.3 — Endpoints de auth
+
+```
+GET  /auth/google              → redirect a Google OAuth
+GET  /auth/google/callback     → procesa callback, genera JWT, redirect al frontend
+GET  /auth/github              → redirect a GitHub OAuth
+GET  /auth/github/callback     → procesa callback, genera JWT, redirect al frontend
+POST /api/v1/auth/logout       → invalida sesión (si se usa refresh token)
+GET  /api/v1/auth/me           → devuelve usuario autenticado actual
+```
+
+### R9.4 — Middleware de autenticación
+
+```typescript
+// server/middleware/auth.ts
+export function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const token = req.headers.authorization?.replace('Bearer ', '')
+  if (!token) { res.status(401).json({ error: 'Unauthorized' }); return }
+  try {
+    const payload = jwt.verify(token, config.jwtSecret) as JwtPayload
+    req.user = payload
+    next()
+  } catch {
+    res.status(401).json({ error: 'Token inválido o expirado' })
+  }
+}
+```
+
+Aplicar a todas las rutas de la API excepto `/auth/*` y `/api/v1/health`.
+
+### R9.5 — Actor en eventos
+
+```typescript
+// server/services/eventService.ts
+export function recordEvent(params: RecordEventParams & { userId?: string }) {
+  // actor pasa a ser req.user.name o req.user.id
+}
+```
+
+Todos los endpoints que llaman a `recordEvent` reciben el usuario del middleware y lo propagan.
+
+### R9.6 — Frontend: AuthContext + LoginScreen
+
+```typescript
+// src/context/AuthContext.tsx
+interface AuthUser { id: string; name: string; email: string; avatarUrl?: string }
+interface AuthContext { user: AuthUser | null; isLoading: boolean; logout: () => void }
+```
+
+```tsx
+// src/features/auth/LoginScreen.tsx
+export default function LoginScreen() {
+  return (
+    <div className="flex flex-col items-center gap-4 py-20">
+      <h1>Planning Board</h1>
+      <a href="/auth/google" className="btn">Continuar con Google</a>
+      <a href="/auth/github" className="btn">Continuar con GitHub</a>
+    </div>
+  )
+}
+```
+
+`App.tsx` envuelve las rutas en un guard que redirige a `/login` si no hay usuario autenticado.
+
+### R9.7 — Guardar JWT en frontend
+
+```typescript
+// src/api/client.ts
+// Después del callback OAuth, el servidor redirige a:
+// /auth/callback?token=xxxxx
+// El frontend lee el token del query param, lo guarda en localStorage,
+// luego redirige a /
+
+function getToken(): string | null {
+  return localStorage.getItem('auth_token')
+}
+
+// Todas las requests incluyen el token:
+headers: { Authorization: `Bearer ${getToken()}` }
+```
+
+### Casos de prueba R9
+
+- [ ] Login con Google → usuario se crea en tabla `users` → JWT válido
+- [ ] Request sin token → 401 en todas las rutas de la API
+- [ ] Request con token expirado → 401 con mensaje claro
+- [ ] Cambiar status de un ítem → `item_events.actor` = nombre del usuario autenticado
+- [ ] Logout → token ya no es aceptado (si se implementa blacklist o refresh tokens)
+
+---
+
+## R10 — Multi-tenancy
+
+> Objetivo: múltiples organizaciones en la misma instancia. Aislamiento completo de datos por `organization_id`. Roles por organización.
+
+### R10.1 — Tablas nuevas
+
+Migración:
+
+```sql
+CREATE TABLE organizations (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  slug       TEXT UNIQUE NOT NULL,
+  plan       TEXT NOT NULL DEFAULT 'free',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE organization_members (
+  user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  role            TEXT NOT NULL DEFAULT 'member',  -- 'owner' | 'admin' | 'member' | 'viewer'
+  joined_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, organization_id)
+);
+```
+
+### R10.2 — `organization_id` en todas las tablas de datos
+
+```sql
+ALTER TABLE products         ADD COLUMN organization_id TEXT NOT NULL REFERENCES organizations(id);
+ALTER TABLE developers       ADD COLUMN organization_id TEXT NOT NULL REFERENCES organizations(id);
+ALTER TABLE backlog_items    ADD COLUMN organization_id TEXT NOT NULL REFERENCES organizations(id);
+ALTER TABLE sprints          ADD COLUMN organization_id TEXT NOT NULL REFERENCES organizations(id);
+ALTER TABLE milestones       ADD COLUMN organization_id TEXT NOT NULL REFERENCES organizations(id);
+ALTER TABLE item_events      ADD COLUMN organization_id TEXT NOT NULL REFERENCES organizations(id);
+ALTER TABLE sprint_capacity  ADD COLUMN organization_id TEXT NOT NULL REFERENCES organizations(id);
+ALTER TABLE retrospectives   ADD COLUMN organization_id TEXT NOT NULL REFERENCES organizations(id);
+ALTER TABLE saved_views      ADD COLUMN organization_id TEXT NOT NULL REFERENCES organizations(id);
+```
+
+Índices en `organization_id` para todas las tablas (queries siempre filtran por org).
+
+### R10.3 — Middleware de organización
+
+El JWT incluye `orgId` además de `userId`. Un middleware valida que el usuario pertenece a la org y expone `req.orgId`:
+
+```typescript
+// server/middleware/org.ts
+export function requireOrgMember(req: Request, res: Response, next: NextFunction) {
+  const orgId = req.headers['x-organization-id'] as string ?? req.user?.orgId
+  if (!orgId) { res.status(400).json({ error: 'Organization requerida' }); return }
+  // verificar membership en DB
+  req.orgId = orgId
+  next()
+}
+```
+
+### R10.4 — Todos los repositorios reciben `orgId`
+
+```typescript
+// Todos los métodos de repositorio firman con orgId obligatorio:
+findAll(orgId: string, filters: BacklogFilters): Promise<BacklogItem[]>
+findById(orgId: string, id: string): Promise<BacklogItem | null>
+create(orgId: string, data: CreateBacklogItemDto): Promise<BacklogItem>
+```
+
+El `orgId` va en cada WHERE de cada query. Ninguna query puede olvidarlo porque es un parámetro de la función, no un campo opcional.
+
+### R10.5 — Frontend: selector de organización
+
+Si un usuario pertenece a más de una organización, un selector en el header permite cambiar de contexto. Al cambiar de org, se invalida todo el cache de TanStack Query.
+
+### R10.6 — Flujo de onboarding
+
+```
+Usuario nuevo → login OAuth → sin organización →
+  opción A: "Crear organización" (slug, nombre)
+  opción B: "Unirse por invitación" (código de invitación)
+```
+
+Endpoint de invitación:
+
+```
+POST /api/v1/organizations/:id/invitations   → genera código
+POST /api/v1/invitations/:code/accept        → agrega user a org
+```
+
+### Casos de prueba R10
+
+- [ ] Org A no puede ver ni modificar datos de Org B bajo ninguna circunstancia
+- [ ] Un usuario con rol `viewer` no puede hacer PATCH ni POST
+- [ ] Crear org → usuario queda como `owner` automáticamente
+- [ ] Invitación usada → usuario aparece en la org con rol `member`
+- [ ] Cambiar de org en el selector → la app muestra datos de la nueva org inmediatamente
+
+---
+
+## R11 — Real-time con WebSockets
+
+> Objetivo: cambios en el board y el backlog se reflejan en tiempo real en todos los clientes conectados a la misma organización.
+
+### R11.1 — Dependencias
+
+```bash
+npm install socket.io
+npm install -D @types/socket.io  # si es necesario
+# frontend:
+npm install socket.io-client
+```
+
+### R11.2 — Integración con Express
+
+```typescript
+// server/index.ts
+import { createServer } from 'http'
+import { Server as SocketServer } from 'socket.io'
+
+const httpServer = createServer(app)
+const io = new SocketServer(httpServer, {
+  cors: { origin: config.frontendUrl, credentials: true },
+})
+
+io.on('connection', (socket) => {
+  const token = socket.handshake.auth.token
+  const payload = verifyJwt(token)
+  if (!payload) { socket.disconnect(); return }
+  socket.join(`org:${payload.orgId}`)
+})
+
+export function emitToOrg(orgId: string, event: string, payload: unknown) {
+  io.to(`org:${orgId}`).emit(event, payload)
+}
+
+httpServer.listen(config.port)   // reemplaza app.listen()
+```
+
+### R11.3 — Eventos emitidos por el servidor
+
+Llamar a `emitToOrg()` después de cada mutación exitosa:
+
+| Mutación | Evento emitido | Payload |
+| --- | --- | --- |
+| PATCH /backlog-items/:id | `backlog:item:updated` | `{ itemId }` |
+| POST /backlog-items | `backlog:item:created` | `{ itemId }` |
+| DELETE /backlog-items/:id | `backlog:item:deleted` | `{ itemId }` |
+| POST /sprints/:id/close | `sprint:closed` | `{ sprintId }` |
+| PATCH /sprints/:id | `sprint:updated` | `{ sprintId }` |
+| PUT /sprints/:id/retrospective | `retrospective:updated` | `{ sprintId }` |
+
+### R11.4 — Hook en el frontend
+
+```typescript
+// src/hooks/useRealtimeSync.ts
+export function useRealtimeSync() {
+  const queryClient = useQueryClient()
+  const { user } = useAuth()
+
+  useEffect(() => {
+    if (!user) return
+    const socket = io({ auth: { token: getToken() } })
+
+    socket.on('backlog:item:updated', () =>
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.backlogItems })
+    )
+    socket.on('backlog:item:created', () =>
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.backlogItems })
+    )
+    socket.on('backlog:item:deleted', () =>
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.backlogItems })
+    )
+    socket.on('sprint:closed', ({ sprintId }) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sprints })
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sprintBurndown(sprintId) })
+    })
+    socket.on('sprint:updated', () =>
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.sprints })
+    )
+    socket.on('retrospective:updated', ({ sprintId }) =>
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.retrospective(sprintId) })
+    )
+
+    return () => { socket.disconnect() }
+  }, [user, queryClient])
+}
+```
+
+Este hook se monta una sola vez en `App.tsx`. TanStack Query ya sabe cómo refrescar los datos — los WebSockets solo mandan la señal de invalidación.
+
+### Casos de prueba R11
+
+- [ ] Juan mueve card en el board → María ve el cambio en < 500ms sin recargar
+- [ ] Cierre de sprint → todos los clientes conectados ven el sprint como cerrado
+- [ ] Desconexión de red → al reconectar, socket reestablece la room y se refresca el estado
+- [ ] 5 usuarios moviendo cards simultáneamente → sin condiciones de carrera visibles
+
+---
+
+## R12 — Deploy SaaS
+
+> Objetivo: la app corre en un servidor accesible por internet (o intranet de equipo) con zero-downtime deploy.
+
+### R12.1 — Dockerfile
+
+```dockerfile
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/server ./server
+COPY --from=builder /app/src/domain ./src/domain
+COPY --from=builder /app/src/lib ./src/lib
+EXPOSE 3002
+CMD ["node", "--loader", "tsx/esm", "server/index.ts"]
+```
+
+### R12.2 — docker-compose.yml
+
+```yaml
+version: '3.9'
+services:
+  app:
+    build: .
+    ports:
+      - "3002:3002"
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: planning_board
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      FRONTEND_URL: ${FRONTEND_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: planning_board
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
+```
+
+### R12.3 — Logging estructurado
+
+```bash
+npm install pino pino-pretty
+```
+
+```typescript
+// server/logger.ts — reemplaza el logger simple de R7
+import pino from 'pino'
+export const logger = pino({
+  level: config.isProd ? 'info' : 'debug',
+  ...(config.isProd ? {} : { transport: { target: 'pino-pretty' } }),
+})
+```
+
+En producción: JSON por stdout, fácil de procesar con Datadog, Grafana Loki, etc.
+
+### R12.4 — Opciones de hosting recomendadas
+
+| Opción | Ideal para | Costo aproximado |
+| --- | --- | --- |
+| **Railway** | Deploy automático desde GitHub, PostgreSQL incluido | ~$5-20/mes |
+| **Render** | Similar a Railway, free tier disponible | $0-25/mes |
+| **Fly.io** | Más control, excelente para Docker | $3-15/mes |
+| **VPS propio** (DigitalOcean, Hetzner) | Control total, equipo técnico | $5-20/mes |
+| **LAN interna** | Uso solo de equipo, sin internet público | Sin costo de hosting |
+
+### Casos de prueba R12
+
+- [ ] `docker compose up` levanta la app sin errores en máquina limpia
+- [ ] Las migraciones corren automáticamente en el primer arranque
+- [ ] `/api/v1/health` accesible desde fuera del contenedor
+- [ ] Reiniciar el contenedor de app no pierde datos (PostgreSQL en volume separado)
+- [ ] Variables en `.env` sobreescriben todas las configuraciones
 
 ---
 
@@ -740,6 +1574,10 @@ No iniciar un release sin haber cerrado el anterior. Cada release tiene casos de
 | D1 | Modelo Sprint ↔ Producto     | Opción C: sprint N:M con productos + tabla `sprint_product_metrics` para métricas por producto |
 | D2 | `blocked` como status o flag | Status de primera clase, agregado en R0                                                        |
 | D3 | Formato rich text            | Markdown con `marked` + `DOMPurify`, implementado en R4                                        |
+| D4 | Auth propio vs OAuth         | OAuth externo (Google + GitHub) vía Better Auth, implementado en R9                            |
+| D5 | Modelo multi-tenancy         | Row-level con `organization_id` en todas las tablas, implementado en R10                       |
+| D6 | DB para SaaS                 | PostgreSQL con Kysely query builder, implementado en R8                                        |
+| D7 | Real-time                    | Socket.io con invalidación de cache TanStack Query, implementado en R11                        |
 
 ---
 
@@ -753,16 +1591,27 @@ No iniciar un release sin haber cerrado el anterior. Cada release tiene casos de
 | R3 | Planning de sprint con capacidad muestra sobreasignación correctamente |
 | R4 | Filtro guardado recuperado intacto en sesión nueva |
 | R5 | Backup/restore completo funciona con schema de todos los releases anteriores |
+| R6 | Cycle time calculado y WIP aging operativo con datos reales del equipo |
+| R7 | `npm run preview` levanta la app lista para uso del equipo en la LAN |
+| R8 | App funciona idéntica con PostgreSQL, sin pérdida de datos desde SQLite |
+| R9 | Login con Google funciona, `item_events.actor` identifica al usuario real |
+| R10 | Dos organizaciones en la misma instancia sin ninguna fuga de datos cross-tenant |
+| R11 | Cambio en el board visible en otro cliente en menos de 500ms |
+| R12 | `docker compose up` en máquina limpia levanta la app lista para producción |
 
 ---
 
 ## Stack de dependencias nuevas estimadas
 
 | Librería | Release | Propósito |
-|----------|---------|-----------|
+| -------- | ------- | --------- |
 | `marked` + `dompurify` | R4 | Render de Markdown en frontend |
-| Ninguna adicional de backend | — | SQLite + Express alcanzan para todos los releases |
+| `dotenv` | R7 | Variables de entorno |
+| `pg` + `kysely` | R8 | Driver PostgreSQL + query builder type-safe |
+| `better-auth` | R9 | OAuth (Google, GitHub) + JWT |
+| `socket.io` + `socket.io-client` | R11 | WebSockets para real-time |
+| `pino` + `pino-pretty` | R12 | Logging estructurado |
 
 ---
 
-*Última actualización: 2026-03-19*
+*Última actualización: 2026-03-20*

@@ -1,6 +1,10 @@
 import express from 'express'
 import cors from 'cors'
+import path from 'path'
+import { fileURLToPath } from 'url'
+import { createServer } from 'http'
 import db from './db.js'
+import { config } from './config.js'
 import { backlogRouter } from './routes/backlog.js'
 import { importsRouter } from './routes/imports.js'
 import { productsRouter } from './routes/products.js'
@@ -12,8 +16,10 @@ import { reportsRouter } from './routes/reports.js'
 import { savedViewsRouter } from './routes/savedViews.js'
 import { runSnapshotJob } from './services/snapshotService.js'
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
 const app = express()
-const PORT = 3002
+const PORT = config.port
 
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))
@@ -29,7 +35,11 @@ app.use('/api/v1/reports', reportsRouter)
 app.use('/api/v1/saved-views', savedViewsRouter)
 
 app.get('/api/v1/health', (_req, res) => {
-  res.json({ status: 'ok' })
+  res.json({
+    status: 'ok',
+    env: config.nodeEnv,
+    uptime: Math.round(process.uptime()),
+  })
 })
 
 app.get('/api/v1/exports/json', (_req, res) => {
@@ -50,8 +60,17 @@ app.get('/api/v1/exports/json', (_req, res) => {
   res.json(data)
 })
 
+if (config.isProd) {
+  const distPath = path.join(__dirname, '..', 'dist')
+  app.use(express.static(distPath))
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) { next(); return }
+    res.sendFile(path.join(distPath, 'index.html'))
+  })
+}
+
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`)
+  console.log(`[server] running at http://localhost:${PORT} (${config.nodeEnv})`)
   // Run snapshot job on startup to backfill any missing days
   try { runSnapshotJob() } catch (e) { console.error('[snapshot] startup job failed:', e) }
 })

@@ -16,6 +16,11 @@ export const QUERY_KEYS = {
   retrospective:  (id: string) => ['retrospective', id] as const,
   savedViews: (screen?: string) => ['saved-views', screen ?? 'all'] as const,
   itemEvents:  (itemId: string) => ['item-events', itemId] as const,
+  cycleTime:   (productId?: string) => ['cycle-time', productId ?? 'all'] as const,
+  throughput:  (productId?: string) => ['throughput', productId ?? 'all'] as const,
+  wipAging:    ['wip-aging'] as const,
+  teamLoad:    (sprintId?: string) => ['team-load', sprintId ?? 'active'] as const,
+  estimationAccuracy: (productId?: string) => ['estimation-accuracy', productId ?? 'all'] as const,
 }
 
 export const STALE_TIMES = {
@@ -33,4 +38,9 @@ export const STALE_TIMES = {
   retrospective:  60_000,
   savedViews: 60_000,
   itemEvents: 30_000,
+  cycleTime: 5 * 60_000,
+  throughput: 5 * 60_000,
+  wipAging: 60_000,
+  teamLoad: 60_000,
+  estimationAccuracy: 5 * 60_000,
 }

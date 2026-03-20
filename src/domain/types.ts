@@ -258,3 +258,52 @@ export interface ItemEvent {
   metadata: Record<string, unknown> | null
   createdAt: string
 }
+
+// ─── R6 Analytics ─────────────────────────────────────────────────────────────
+
+export interface CycleTimeItem {
+  id: string; title: string; itemType: string
+  productId: string | null; sprintId: string | null
+  startedAt: string; doneAt: string; cycleTimeHours: number
+}
+
+export interface CycleTimeResponse {
+  items: CycleTimeItem[]
+  avg: number | null; p50: number | null; p90: number | null
+  buckets: Array<{ label: string; count: number }>
+}
+
+export interface ThroughputSprint {
+  id: string; name: string; closedAt: string | null
+  totalItems: number; completedItems: number; completedSp: number
+  bugCount: number; completionRate: number
+}
+
+export interface WipAgingItem {
+  id: string; title: string; status: string; priority: string
+  productId: string | null; sprintId: string | null; assigneeIds: string[]
+  statusSince: string | null; hoursInStatus: number
+}
+
+export interface TeamLoadDeveloper {
+  id: string; name: string
+  capacityHours: number; capacityStoryPoints: number | null
+  assignedItems: number; completedItems: number
+  assignedSp: number; assignedHours: number; loadPct: number | null
+}
+
+export interface TeamLoadResponse {
+  sprintId: string | null
+  developers: TeamLoadDeveloper[]
+}
+
+export interface EstimationAccuracySprint {
+  id: string; name: string; closedAt: string | null
+  committedSp: number | null; completedSp: number | null
+  accuracyPct: number | null; itemsWithoutSp: number
+}
+
+export interface EstimationAccuracyResponse {
+  sprints: EstimationAccuracySprint[]
+  avgAccuracy: number | null
+}

@@ -1,15 +1,12 @@
 import Database from 'better-sqlite3'
 import path from 'path'
-import { fileURLToPath } from 'url'
 import fs from 'fs'
+import { config } from './config.js'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const DB_PATH = path.join(__dirname, '..', 'data', 'planning.db')
-
-const dataDir = path.join(__dirname, '..', 'data')
+const dataDir = path.dirname(config.dbPath)
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true })
 
-const db: InstanceType<typeof Database> = new Database(DB_PATH)
+const db: InstanceType<typeof Database> = new Database(config.dbPath)
 db.pragma('journal_mode = WAL')
 db.pragma('foreign_keys = ON')
 
