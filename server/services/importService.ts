@@ -16,7 +16,13 @@ function ensureProduct(name: string): string {
   const id = randomUUID()
   const colors = ['#6366f1', '#f59e0b', '#10b981', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899']
   const color = colors[Math.floor(Math.random() * colors.length)]
-  db.prepare('INSERT INTO products (id, name, color) VALUES (?, ?, ?)').run(id, name, color)
+  const boardColumns = JSON.stringify([
+    { name: 'not-started', wipLimit: null },
+    { name: 'in-progress', wipLimit: null },
+    { name: 'review', wipLimit: null },
+    { name: 'done', wipLimit: null },
+  ])
+  db.prepare('INSERT INTO products (id, name, color, board_columns) VALUES (?, ?, ?, ?)').run(id, name, color, boardColumns)
   return id
 }
 

@@ -5,6 +5,29 @@ import type { BacklogItem } from '../../src/domain/types.js'
 
 export const backlogRouter = Router()
 
+function parseJsonArray(value: unknown): string[] {
+  if (typeof value !== 'string' || value.trim() === '') return []
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return Array.isArray(parsed) ? parsed.map(String) : []
+  } catch {
+    return []
+  }
+}
+
+function parseJsonObject(value: unknown): Record<string, string> {
+  if (typeof value !== 'string' || value.trim() === '') return {}
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return Object.fromEntries(
+      Object.entries(parsed).map(([key, entryValue]) => [key, String(entryValue ?? '')])
+    )
+  } catch {
+    return {}
+  }
+}
+
 function deserializeItem(row: Record<string, unknown>): BacklogItem {
   return {
     id: row.id as string,
@@ -16,10 +39,10 @@ function deserializeItem(row: Record<string, unknown>): BacklogItem {
     feature: row.feature as string | null,
     status: row.status as BacklogItem['status'],
     priority: row.priority as BacklogItem['priority'],
-    assigneeIds: JSON.parse(row.assignee_ids as string ?? '[]'),
+    assigneeIds: parseJsonArray(row.assignee_ids),
     sprintId: row.sprint_id as string | null,
     milestoneId: row.milestone_id as string | null,
-    categories: JSON.parse(row.categories as string ?? '[]'),
+    categories: parseJsonArray(row.categories),
     service: row.service as string | null,
     version: row.version as string | null,
     client: row.client as string | null,
@@ -42,8 +65,8 @@ function deserializeItem(row: Record<string, unknown>): BacklogItem {
     updatedAt: row.updated_at as string | null,
     importedAt: row.imported_at as string,
     importHash: row.import_hash as string | null,
-    manualOverrides: JSON.parse(row.manual_overrides as string ?? '[]'),
-    rawFields: JSON.parse(row.raw_fields as string ?? '{}'),
+    manualOverrides: parseJsonArray(row.manual_overrides),
+    rawFields: parseJsonObject(row.raw_fields),
     sortOrder: row.sort_order as number | null,
   }
 }
@@ -134,7 +157,7 @@ backlogRouter.patch('/:id', (req, res) => {
   if (!item) { res.status(404).json({ error: 'Not found' }); return }
 
   const updates = req.body as Partial<BacklogItem>
-  const manualOverrides = JSON.parse(item.manual_overrides as string ?? '[]') as string[]
+  const manualOverrides = parseJsonArray(item.manual_overrides)
 
   // Track which fields are being manually overridden
   const overridableFields = ['title', 'description', 'status', 'priority', 'assigneeIds', 'feature', 'notes']
@@ -198,7 +221,7 @@ backlogRouter.patch('/:id', (req, res) => {
   for (const { jsKey, eventType, field } of trackFields) {
     if (!(jsKey in updates)) continue
     const oldVal = jsKey === 'assigneeIds'
-      ? JSON.parse(item.assignee_ids as string ?? '[]')
+      ? parseJsonArray(item.assignee_ids)
       : item[jsKey === 'sprintId' ? 'sprint_id' : jsKey === 'priority' ? 'priority' : 'status']
     const newVal = (updates as Record<string, unknown>)[jsKey]
     const oldStr = JSON.stringify(oldVal)
@@ -229,7 +252,17 @@ backlogRouter.patch('/:id', (req, res) => {
     if (productId) {
       const prod = db.prepare('SELECT board_columns FROM products WHERE id = ?').get(productId) as { board_columns: string } | undefined
       if (prod) {
-        const cols = JSON.parse(prod.board_columns ?? '[]') as Array<{ name: string; wipLimit: number | null }>
+        let cols: Array<{ name: string; wipLimit: number | null }> = []
+        try {
+          const parsed = JSON.parse(prod.board_columns ?? '[]') as Array<string | { name: string; wipLimit: number | null }>
+          cols = Array.isArray(parsed)
+            ? parsed.map((column) => typeof column === 'string'
+              ? { name: column, wipLimit: null }
+              : { name: column.name, wipLimit: column.wipLimit ?? null })
+            : []
+        } catch {
+          cols = []
+        }
         const col = cols.find(c => c.name === targetStatus)
         if (col && col.wipLimit != null) {
           const count = (db.prepare('SELECT COUNT(*) as cnt FROM backlog_items WHERE product_id = ? AND status = ?').get(productId, targetStatus) as { cnt: number }).cnt

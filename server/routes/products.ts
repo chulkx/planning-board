@@ -13,6 +13,26 @@ const DEFAULT_COLUMNS: BoardColumn[] = [
   { name: 'done', wipLimit: null },
 ]
 
+function normalizeBoardColumns(raw: unknown): BoardColumn[] {
+  if (typeof raw !== 'string' || raw.trim() === '') return DEFAULT_COLUMNS
+  try {
+    const parsed = JSON.parse(raw) as Array<string | Partial<BoardColumn>>
+    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_COLUMNS
+    return parsed
+      .map((column) => {
+        if (typeof column === 'string') return { name: column, wipLimit: null }
+        if (!column || typeof column.name !== 'string' || column.name.trim() === '') return null
+        return {
+          name: column.name,
+          wipLimit: typeof column.wipLimit === 'number' ? column.wipLimit : null,
+        }
+      })
+      .filter((column): column is BoardColumn => column !== null)
+  } catch {
+    return DEFAULT_COLUMNS
+  }
+}
+
 productsRouter.get('/', (_req, res) => {
   const rows = db.prepare('SELECT * FROM products ORDER BY name').all()
   res.json(rows.map(deserialize))
@@ -56,7 +76,7 @@ function deserialize(row: Record<string, unknown>) {
     id: row.id,
     name: row.name,
     color: row.color,
-    boardColumns: JSON.parse(row.board_columns as string ?? '[]') as BoardColumn[],
+    boardColumns: normalizeBoardColumns(row.board_columns),
     createdAt: row.created_at,
   }
 }

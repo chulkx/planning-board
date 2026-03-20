@@ -63,7 +63,7 @@ app.get('/api/v1/exports/json', (_req, res) => {
 if (config.isProd) {
   const distPath = path.join(__dirname, '..', 'dist')
   app.use(express.static(distPath))
-  app.get('*', (req, res, next) => {
+  app.use((req, res, next) => {
     if (req.path.startsWith('/api/')) { next(); return }
     res.sendFile(path.join(distPath, 'index.html'))
   })
