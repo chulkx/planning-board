@@ -89,7 +89,7 @@ backlogRouter.get('/', (req, res) => {
     params.push(`%${search}%`, `%${search}%`)
   }
 
-  query += ' ORDER BY COALESCE(sort_order, 999999), title'
+  query += ' ORDER BY COALESCE(sort_order, 999999), created_at DESC'
 
   const rows = db.prepare(query).all(...params) as Record<string, unknown>[]
   res.json(rows.map(deserializeItem))
@@ -273,4 +273,10 @@ backlogRouter.patch('/:id', (req, res) => {
   }
 
   res.json(wip ? { ...result, wip } : result)
+})
+
+// DELETE /api/v1/backlog-items — elimina todos los items del backlog
+backlogRouter.delete('/', (_req, res) => {
+  db.prepare('DELETE FROM backlog_items').run()
+  res.status(204).end()
 })

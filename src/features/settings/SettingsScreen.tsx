@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { getAuthToken } from '@/api/client'
 import {
   getProducts, createProduct, patchProduct, deleteProduct,
   getDevelopers, createDeveloper, patchDeveloper, deleteDeveloper,
@@ -155,8 +156,48 @@ function BackupSection() {
             <input ref={fileRef} type="file" accept=".json" className="hidden" onChange={handleRestore} />
           </label>
         </div>
+        <div className="px-4 py-3 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-red-600">Borrar todos los items</p>
+            <p className="text-xs text-slate-500 mt-0.5">Elimina todos los items del backlog. No afecta productos, sprints ni developers.</p>
+          </div>
+          <DeleteAllItemsButton />
+        </div>
       </div>
     </section>
+  )
+}
+
+function DeleteAllItemsButton() {
+  const queryClient = useQueryClient()
+  const [loading, setLoading] = useState(false)
+
+  async function handleDelete() {
+    if (!confirm('¿Borrar TODOS los items del backlog? Esta acción no se puede deshacer.')) return
+    setLoading(true)
+    try {
+      const res = await fetch('/api/v1/backlog-items', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${getAuthToken()}` },
+      })
+      if (!res.ok) throw new Error('Error al borrar')
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.backlogItems })
+      toast.success('Todos los items fueron eliminados')
+    } catch {
+      toast.error('Error al borrar los items')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <button
+      onClick={handleDelete}
+      disabled={loading}
+      className="text-sm border border-red-300 text-red-600 px-4 py-2 rounded hover:bg-red-50 disabled:opacity-50 shrink-0"
+    >
+      {loading ? 'Borrando...' : 'Borrar todo'}
+    </button>
   )
 }
 

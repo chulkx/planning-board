@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -39,9 +39,7 @@ export default function BoardScreen() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   )
 
-  useEffect(() => {
-    if (products.length > 0 && !selectedProductId) setSelectedProductId(products[0].id)
-  }, [products, selectedProductId])
+  // No auto-selecciona ningún producto — arranca mostrando todos
 
   const selectedProduct = useMemo(
     () => products.find((p) => p.id === selectedProductId) ?? null,
