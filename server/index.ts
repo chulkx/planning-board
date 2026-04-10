@@ -1,8 +1,8 @@
 import express from 'express'
 import cors from 'cors'
 import path from 'path'
+import os from 'os'
 import { fileURLToPath } from 'url'
-import { createServer } from 'http'
 import db from './db.js'
 import { config } from './config.js'
 import { backlogRouter } from './routes/backlog.js'
@@ -15,24 +15,30 @@ import { configRouter } from './routes/config.js'
 import { reportsRouter } from './routes/reports.js'
 import { savedViewsRouter } from './routes/savedViews.js'
 import { runSnapshotJob } from './services/snapshotService.js'
+import { authRouter } from './routes/auth.js'
+import { authenticateToken } from './middleware/auth.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const app = express()
 const PORT = config.port
 
-app.use(cors())
+app.use(cors({ origin: config.corsOrigin, credentials: true }))
 app.use(express.json({ limit: '10mb' }))
 
-app.use('/api/v1/backlog-items', backlogRouter)
-app.use('/api/v1/imports', importsRouter)
-app.use('/api/v1/products', productsRouter)
-app.use('/api/v1/developers', developersRouter)
-app.use('/api/v1/sprints', sprintsRouter)
-app.use('/api/v1/milestones', milestonesRouter)
-app.use('/api/v1/config', configRouter)
-app.use('/api/v1/reports', reportsRouter)
-app.use('/api/v1/saved-views', savedViewsRouter)
+// Auth — pública (login no requiere token)
+app.use('/api/v1/auth', authRouter)
+
+// Datos — protegidos
+app.use('/api/v1/backlog-items', authenticateToken, backlogRouter)
+app.use('/api/v1/imports',       authenticateToken, importsRouter)
+app.use('/api/v1/products',      authenticateToken, productsRouter)
+app.use('/api/v1/developers',    authenticateToken, developersRouter)
+app.use('/api/v1/sprints',       authenticateToken, sprintsRouter)
+app.use('/api/v1/milestones',    authenticateToken, milestonesRouter)
+app.use('/api/v1/config',        authenticateToken, configRouter)
+app.use('/api/v1/reports',       authenticateToken, reportsRouter)
+app.use('/api/v1/saved-views',   authenticateToken, savedViewsRouter)
 
 app.get('/api/v1/health', (_req, res) => {
   res.json({
@@ -69,9 +75,21 @@ if (config.isProd) {
   })
 }
 
-app.listen(PORT, () => {
-  console.log(`[server] running at http://localhost:${PORT} (${config.nodeEnv})`)
-  // Run snapshot job on startup to backfill any missing days
+function getLanIp(): string | null {
+  for (const ifaces of Object.values(os.networkInterfaces())) {
+    for (const iface of ifaces ?? []) {
+      if (iface.family === 'IPv4' && !iface.internal) return iface.address
+    }
+  }
+  return null
+}
+
+app.listen(PORT, config.host, () => {
+  const lan = getLanIp()
+  console.log(`[server] env        : ${config.nodeEnv}`)
+  console.log(`[server] local      : http://localhost:${PORT}`)
+  if (lan) console.log(`[server] red local  : http://${lan}:${PORT}`)
+  console.log(`[server] db         : ${config.dbPath}`)
   try { runSnapshotJob() } catch (e) { console.error('[snapshot] startup job failed:', e) }
 })
 

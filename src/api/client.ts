@@ -13,11 +13,25 @@ import type {
 
 const BASE = '/api/v1'
 
+export function getAuthToken(): string | null { return localStorage.getItem('auth_token') }
+export function setAuthToken(token: string)   { localStorage.setItem('auth_token', token) }
+export function clearAuthToken()              { localStorage.removeItem('auth_token'); localStorage.removeItem('auth_user') }
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = getAuthToken()
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
   })
+  if (res.status === 401) {
+    clearAuthToken()
+    window.location.href = '/login'
+    throw new Error('Sesión expirada')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error ?? res.statusText)
@@ -250,4 +264,14 @@ export function getEstimationAccuracy(params?: { productId?: string; limit?: num
   if (params?.productId) q.set('productId', params.productId)
   if (params?.limit)     q.set('limit', String(params.limit))
   return request(`/reports/estimation-accuracy${q.toString() ? '?' + q : ''}`)
+}
+
+// --- Auth ---
+
+export function login(name: string): Promise<{ token: string; user: { id: string; name: string } }> {
+  return request('/auth/login', { method: 'POST', body: JSON.stringify({ name }) })
+}
+
+export function getTeamUsers(): Promise<Array<{ id: string; name: string; role: string; created_at: string }>> {
+  return request('/auth/users')
 }

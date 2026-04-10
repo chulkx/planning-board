@@ -1,2 +1,5 @@
 @echo off
-npx cross-env NODE_ENV=production tsx server/index.ts
+title Planning Board
+cd /d "f:\Games_dev\planning-board"
+start "" "http://localhost:3002"
+npm start

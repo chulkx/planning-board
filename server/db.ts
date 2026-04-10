@@ -9,6 +9,7 @@ if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true })
 const db: InstanceType<typeof Database> = new Database(config.dbPath)
 db.pragma('journal_mode = WAL')
 db.pragma('foreign_keys = ON')
+db.pragma('busy_timeout = 5000')
 
 // ---------------------------------------------------------------------------
 // Migration runner
