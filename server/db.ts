@@ -289,6 +289,56 @@ const MIGRATIONS: Migration[] = [
       );
     `),
   },
+  {
+    version: 12,
+    description: 'add item_links table for issue linking (blocks/related)',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS item_links (
+        id          TEXT PRIMARY KEY,
+        source_id   TEXT NOT NULL REFERENCES backlog_items(id) ON DELETE CASCADE,
+        target_id   TEXT NOT NULL REFERENCES backlog_items(id) ON DELETE CASCADE,
+        link_type   TEXT NOT NULL DEFAULT 'blocks',
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(source_id, target_id, link_type)
+      );
+      CREATE INDEX IF NOT EXISTS idx_item_links_source ON item_links(source_id);
+      CREATE INDEX IF NOT EXISTS idx_item_links_target ON item_links(target_id);
+    `),
+  },
+  {
+    version: 13,
+    description: 'add labels and item_labels tables',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS labels (
+        id         TEXT PRIMARY KEY,
+        name       TEXT NOT NULL UNIQUE,
+        color      TEXT NOT NULL DEFAULT '#6366f1',
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE TABLE IF NOT EXISTS item_labels (
+        item_id   TEXT NOT NULL REFERENCES backlog_items(id) ON DELETE CASCADE,
+        label_id  TEXT NOT NULL REFERENCES labels(id) ON DELETE CASCADE,
+        PRIMARY KEY (item_id, label_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_item_labels_item  ON item_labels(item_id);
+      CREATE INDEX IF NOT EXISTS idx_item_labels_label ON item_labels(label_id);
+    `),
+  },
+  {
+    version: 14,
+    description: 'add item_comments table',
+    up: (db) => db.exec(`
+      CREATE TABLE IF NOT EXISTS item_comments (
+        id         TEXT PRIMARY KEY,
+        item_id    TEXT NOT NULL REFERENCES backlog_items(id) ON DELETE CASCADE,
+        author     TEXT NOT NULL,
+        body       TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_item_comments_item ON item_comments(item_id);
+    `),
+  },
 ]
 
 export function migrate() {

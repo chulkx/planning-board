@@ -307,3 +307,67 @@ export interface EstimationAccuracyResponse {
   sprints: EstimationAccuracySprint[]
   avgAccuracy: number | null
 }
+
+// ─── R6-bis ───────────────────────────────────────────────────────────────────
+
+export interface Label {
+  id: string
+  name: string
+  color: string
+  created_at: string
+}
+
+export interface ItemLink {
+  id: string
+  relatedItemId: string
+  relatedItemTitle: string
+  relatedItemStatus: string
+  relatedProductId: string | null
+  direction: 'incoming' | 'outgoing'
+  linkType: 'blocks' | 'related'
+  createdAt: string
+}
+
+export interface ItemLinksResponse {
+  blocks: ItemLink[]
+  blockedBy: ItemLink[]
+  related: ItemLink[]
+}
+
+export interface ItemComment {
+  id: string
+  itemId: string
+  author: string
+  body: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface MilestoneStats {
+  milestoneId: string
+  name: string
+  targetDate: string | null
+  status: string
+  totalItems: number
+  openItems: number
+  closedItems: number
+  cancelledItems: number
+  overdueItems: number
+  completionPct: number
+  itemsByStatus: Record<string, number>
+  burndown: Array<{ date: string; open: number }>
+}
+
+export interface DeveloperStats {
+  id: string
+  name: string
+  throughput: Array<{ sprintId: string; sprintName: string; completed: number; completedSP: number }>
+  avgCycleTimeHours: number | null
+  currentLoad: { assignedSP: number; capacitySP: number | null; assignedItems: number }
+  activityHeatmap: Array<{ weekStart: string; closedItems: number }>
+}
+
+export interface DeveloperStatsResponse {
+  sprintId: string | null
+  developers: DeveloperStats[]
+}

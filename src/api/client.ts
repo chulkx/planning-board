@@ -275,3 +275,77 @@ export function login(name: string): Promise<{ token: string; user: { id: string
 export function getTeamUsers(): Promise<Array<{ id: string; name: string; role: string; created_at: string }>> {
   return request('/auth/users')
 }
+
+// ─── R6-bis: Labels ───────────────────────────────────────────────────────────
+
+export function getLabels(): Promise<import('@/domain/types').Label[]> {
+  return request('/labels')
+}
+
+export function createLabel(data: { name: string; color?: string }): Promise<import('@/domain/types').Label> {
+  return request('/labels', { method: 'POST', body: JSON.stringify(data) })
+}
+
+export function patchLabel(id: string, data: { name?: string; color?: string }): Promise<import('@/domain/types').Label> {
+  return request(`/labels/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+}
+
+export function deleteLabel(id: string): Promise<void> {
+  return request(`/labels/${id}`, { method: 'DELETE' })
+}
+
+export function getItemLabels(itemId: string): Promise<import('@/domain/types').Label[]> {
+  return request(`/backlog-items/${itemId}/labels`)
+}
+
+export function addItemLabel(itemId: string, labelId: string): Promise<import('@/domain/types').Label> {
+  return request(`/backlog-items/${itemId}/labels`, { method: 'POST', body: JSON.stringify({ labelId }) })
+}
+
+export function removeItemLabel(itemId: string, labelId: string): Promise<void> {
+  return request(`/backlog-items/${itemId}/labels/${labelId}`, { method: 'DELETE' })
+}
+
+// ─── R6-bis: Links ────────────────────────────────────────────────────────────
+
+export function getItemLinks(itemId: string): Promise<import('@/domain/types').ItemLinksResponse> {
+  return request(`/backlog-items/${itemId}/links`)
+}
+
+export function createItemLink(itemId: string, data: { targetId: string; linkType: 'blocks' | 'related' }): Promise<{ id: string }> {
+  return request(`/backlog-items/${itemId}/links`, { method: 'POST', body: JSON.stringify(data) })
+}
+
+export function deleteItemLink(itemId: string, linkId: string): Promise<void> {
+  return request(`/backlog-items/${itemId}/links/${linkId}`, { method: 'DELETE' })
+}
+
+// ─── R6-bis: Comments ─────────────────────────────────────────────────────────
+
+export function getItemComments(itemId: string): Promise<import('@/domain/types').ItemComment[]> {
+  return request(`/backlog-items/${itemId}/comments`)
+}
+
+export function createItemComment(itemId: string, data: { author: string; body: string }): Promise<import('@/domain/types').ItemComment> {
+  return request(`/backlog-items/${itemId}/comments`, { method: 'POST', body: JSON.stringify(data) })
+}
+
+export function patchItemComment(itemId: string, commentId: string, data: { body: string }): Promise<import('@/domain/types').ItemComment> {
+  return request(`/backlog-items/${itemId}/comments/${commentId}`, { method: 'PATCH', body: JSON.stringify(data) })
+}
+
+export function deleteItemComment(itemId: string, commentId: string): Promise<void> {
+  return request(`/backlog-items/${itemId}/comments/${commentId}`, { method: 'DELETE' })
+}
+
+// ─── R6-bis: Milestone stats ──────────────────────────────────────────────────
+
+export function getMilestoneStats(milestoneId: string): Promise<import('@/domain/types').MilestoneStats> {
+  return request(`/milestones/${milestoneId}/stats`)
+}
+
+// ─── R6-bis: Developer stats ──────────────────────────────────────────────────
+
+export function getDeveloperStats(sprintId?: string): Promise<import('@/domain/types').DeveloperStatsResponse> {
+  return request(`/reports/developer-stats${sprintId ? `?sprintId=${sprintId}` : ''}`)
+}

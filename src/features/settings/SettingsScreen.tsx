@@ -6,6 +6,7 @@ import {
   getProducts, createProduct, patchProduct, deleteProduct,
   getDevelopers, createDeveloper, patchDeveloper, deleteDeveloper,
   getImportHistory, getConfig, patchConfig,
+  getLabels, createLabel, patchLabel, deleteLabel,
 } from '@/api/client'
 import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
 import { EFFORT_UNIT_LABELS, STATUS_CONFIG, type EffortUnit } from '@/domain/enums'
@@ -25,6 +26,7 @@ export default function SettingsScreen() {
       <BackupSection />
       <ProductsSection />
       <DevelopersSection />
+      <LabelsSection />
       <ImportHistorySection />
     </div>
   )
@@ -593,5 +595,84 @@ function DeveloperForm({
         </button>
       </div>
     </form>
+  )
+}
+
+// ─── Labels section ───────────────────────────────────────────────────────────
+
+const LABEL_COLORS = [
+  '#6366f1', '#ef4444', '#f59e0b', '#10b981', '#3b82f6',
+  '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#84cc16', '#64748b',
+]
+
+function LabelsSection() {
+  const qc = useQueryClient()
+  const { data: labels = [] } = useQuery({ queryKey: QUERY_KEYS.labels, queryFn: getLabels, staleTime: STALE_TIMES.labels })
+  const [newName, setNewName] = useState('')
+  const [newColor, setNewColor] = useState(LABEL_COLORS[0])
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editColor, setEditColor] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newName.trim()) return
+    setSaving(true)
+    try {
+      await createLabel({ name: newName.trim(), color: newColor })
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.labels })
+      setNewName('')
+    } catch (err) { toast.error(String(err)) }
+    finally { setSaving(false) }
+  }
+
+  async function handleEdit(id: string) {
+    await patchLabel(id, { name: editName.trim(), color: editColor })
+    qc.invalidateQueries({ queryKey: QUERY_KEYS.labels })
+    setEditId(null)
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm('¿Eliminar este label? Se quitará de todos los ítems.')) return
+    await deleteLabel(id)
+    qc.invalidateQueries({ queryKey: QUERY_KEYS.labels })
+  }
+
+  return (
+    <section className="border rounded-lg p-6 space-y-4">
+      <h2 className="text-lg font-semibold">Labels</h2>
+      <form onSubmit={handleCreate} className="flex items-center gap-2 flex-wrap">
+        <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nuevo label..." className="border rounded px-2 py-1.5 text-sm flex-1 min-w-[140px] focus:outline-none focus:ring-1 focus:ring-indigo-400" />
+        <div className="flex gap-1 flex-wrap">
+          {LABEL_COLORS.map(c => (
+            <button key={c} type="button" onClick={() => setNewColor(c)} className={`w-5 h-5 rounded-full border-2 ${newColor === c ? 'border-slate-800' : 'border-transparent'}`} style={{ backgroundColor: c }} />
+          ))}
+        </div>
+        <button type="submit" disabled={saving || !newName.trim()} className="text-sm bg-indigo-600 text-white px-3 py-1.5 rounded hover:bg-indigo-700 disabled:opacity-40">{saving ? '...' : 'Crear'}</button>
+      </form>
+      <div className="space-y-2">
+        {labels.length === 0 && <p className="text-sm text-slate-400">No hay labels creados.</p>}
+        {(labels as import('@/domain/types').Label[]).map(l => (
+          <div key={l.id} className="flex items-center gap-3 p-2 border rounded">
+            {editId === l.id ? (
+              <>
+                <div className="flex gap-1">{LABEL_COLORS.map(c => <button key={c} type="button" onClick={() => setEditColor(c)} className={`w-4 h-4 rounded-full border-2 ${editColor === c ? 'border-slate-800' : 'border-transparent'}`} style={{ backgroundColor: c }} />)}</div>
+                <input value={editName} onChange={e => setEditName(e.target.value)} className="border rounded px-2 py-0.5 text-sm flex-1 focus:outline-none focus:ring-1 focus:ring-indigo-400" />
+                <button onClick={() => handleEdit(l.id)} className="text-xs bg-indigo-600 text-white px-2 py-1 rounded">Guardar</button>
+                <button onClick={() => setEditId(null)} className="text-xs text-slate-400">Cancelar</button>
+              </>
+            ) : (
+              <>
+                <span className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
+                <span className="text-sm flex-1">{l.name}</span>
+                <button onClick={() => { setEditId(l.id); setEditName(l.name); setEditColor(l.color) }} className="text-xs text-slate-400 hover:text-indigo-600">Editar</button>
+                <button onClick={() => handleDelete(l.id)} className="text-xs text-slate-400 hover:text-red-500">Eliminar</button>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }

@@ -50,3 +50,87 @@ milestonesRouter.delete('/:id', (req, res) => {
   db.prepare('DELETE FROM milestones WHERE id = ?').run(req.params.id)
   res.status(204).end()
 })
+
+// GET /api/v1/milestones/:id/stats
+milestonesRouter.get('/:id/stats', (req, res) => {
+  const milestone = db.prepare('SELECT * FROM milestones WHERE id = ?').get(req.params.id) as Record<string, unknown> | undefined
+  if (!milestone) { res.status(404).json({ error: 'Not found' }); return }
+
+  const items = db.prepare(`
+    SELECT id, status, due_date, item_id
+    FROM backlog_items
+    WHERE milestone_id = ?
+  `).all(req.params.id) as Array<{ id: string; status: string; due_date: string | null; item_id?: string }>
+
+  const today = new Date().toISOString().slice(0, 10)
+  const totalItems = items.length
+  const closedItems = items.filter(i => i.status === 'done').length
+  const cancelledItems = items.filter(i => i.status === 'cancelled').length
+  const openItems = totalItems - closedItems - cancelledItems
+  const overdueItems = items.filter(i =>
+    i.due_date && i.due_date < today && i.status !== 'done' && i.status !== 'cancelled'
+  ).length
+  const denominator = totalItems - cancelledItems
+  const completionPct = denominator > 0 ? Math.round((closedItems / denominator) * 100) : 0
+
+  const itemsByStatus: Record<string, number> = {}
+  for (const item of items) {
+    itemsByStatus[item.status] = (itemsByStatus[item.status] ?? 0) + 1
+  }
+
+  // Burndown: items open per day based on item_events
+  const itemIds = items.map(i => i.id)
+  let burndown: Array<{ date: string; open: number }> = []
+  if (itemIds.length > 0) {
+    const placeholders = itemIds.map(() => '?').join(',')
+    const doneEvents = db.prepare(`
+      SELECT item_id, MIN(created_at) AS done_at
+      FROM item_events
+      WHERE event_type = 'status_changed' AND new_value = 'done'
+        AND item_id IN (${placeholders})
+      GROUP BY item_id
+    `).all(...itemIds) as Array<{ item_id: string; done_at: string }>
+
+    const doneDates = new Map(doneEvents.map(e => [e.item_id, e.done_at.slice(0, 10)]))
+
+    // Generate daily series from earliest item creation to today
+    const allDates = [...new Set([
+      ...items.map(() => today),
+      ...doneEvents.map(e => e.done_at.slice(0, 10)),
+    ])].sort()
+
+    if (allDates.length > 0) {
+      const startDate = allDates[0]
+      const days: string[] = []
+      const d = new Date(startDate)
+      const end = new Date(today)
+      while (d <= end) {
+        days.push(d.toISOString().slice(0, 10))
+        d.setDate(d.getDate() + 1)
+      }
+
+      burndown = days.map(day => ({
+        date: day,
+        open: itemIds.filter(id => {
+          const doneDate = doneDates.get(id)
+          return !doneDate || doneDate > day
+        }).length,
+      }))
+    }
+  }
+
+  res.json({
+    milestoneId: req.params.id,
+    name: milestone.name,
+    targetDate: milestone.target_date,
+    status: milestone.status,
+    totalItems,
+    openItems,
+    closedItems,
+    cancelledItems,
+    overdueItems,
+    completionPct,
+    itemsByStatus,
+    burndown,
+  })
+})

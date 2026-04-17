@@ -387,3 +387,123 @@ reportsRouter.get('/estimation-accuracy', (req, res) => {
 
   res.json({ sprints, avgAccuracy })
 })
+
+// GET /api/v1/reports/developer-stats?sprintId=optional
+reportsRouter.get('/developer-stats', (req, res) => {
+  const { sprintId } = req.query as { sprintId?: string }
+
+  const effectiveSprintId: string | undefined = sprintId ?? (
+    db.prepare(`SELECT id FROM sprints WHERE status = 'active' ORDER BY start_date DESC LIMIT 1`).get() as { id: string } | undefined
+  )?.id
+
+  const developers = db.prepare('SELECT id, name, capacity_per_sprint FROM developers ORDER BY name').all() as Array<{
+    id: string; name: string; capacity_per_sprint: number
+  }>
+
+  // Last 6 closed sprints
+  const closedSprints = db.prepare(`
+    SELECT id, name, closed_at FROM sprints
+    WHERE status IN ('closed', 'completed') AND closed_at IS NOT NULL
+    ORDER BY closed_at DESC LIMIT 6
+  `).all() as Array<{ id: string; name: string; closed_at: string }>
+
+  // Items per closed sprint with assignees
+  const sprintItemsMap = new Map<string, Array<{ assignee_ids: string; status: string; effort_story_points: number | null }>>()
+  for (const s of closedSprints) {
+    const items = db.prepare(`
+      SELECT assignee_ids, status, effort_story_points FROM backlog_items WHERE sprint_id = ?
+    `).all(s.id) as Array<{ assignee_ids: string; status: string; effort_story_points: number | null }>
+    sprintItemsMap.set(s.id, items)
+  }
+
+  // Current sprint items for load
+  const currentItems = effectiveSprintId
+    ? (db.prepare(`SELECT assignee_ids, effort_story_points, effort_estimated_hours, status FROM backlog_items WHERE sprint_id = ?`).all(effectiveSprintId) as Array<{
+        assignee_ids: string; effort_story_points: number | null; effort_estimated_hours: number | null; status: string
+      }>)
+    : []
+
+  // Sprint capacity for current sprint
+  const capacityRows = effectiveSprintId
+    ? (db.prepare('SELECT developer_id, capacity_story_points, capacity_hours FROM sprint_capacity WHERE sprint_id = ?').all(effectiveSprintId) as Array<{
+        developer_id: string; capacity_story_points: number | null; capacity_hours: number
+      }>)
+    : []
+  const capacityByDev = new Map(capacityRows.map(c => [c.developer_id, c]))
+
+  // Activity heatmap: closed items per week, last 12 weeks
+  const twelveWeeksAgo = new Date()
+  twelveWeeksAgo.setDate(twelveWeeksAgo.getDate() - 84)
+  const heatmapEvents = db.prepare(`
+    SELECT ie.actor, ie.created_at
+    FROM item_events ie
+    WHERE ie.event_type = 'status_changed' AND ie.new_value = 'done'
+      AND ie.created_at >= ?
+  `).all(twelveWeeksAgo.toISOString()) as Array<{ actor: string | null; created_at: string }>
+
+  // Generate week starts for last 12 weeks
+  const weekStarts: string[] = []
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date()
+    d.setDate(d.getDate() - i * 7 - d.getDay())
+    weekStarts.push(d.toISOString().slice(0, 10))
+  }
+
+  const result = developers.map(dev => {
+    // Throughput: completed items + SP per closed sprint
+    const throughput = closedSprints.map(s => {
+      const items = sprintItemsMap.get(s.id) ?? []
+      const devItems = items.filter(i => {
+        try { return (JSON.parse(i.assignee_ids) as string[]).includes(dev.name) } catch { return false }
+      })
+      const completed = devItems.filter(i => i.status === 'done').length
+      const completedSP = devItems.filter(i => i.status === 'done').reduce((sum, i) => sum + (i.effort_story_points ?? 0), 0)
+      return { sprintId: s.id, sprintName: s.name, completed, completedSP: Math.round(completedSP * 10) / 10 }
+    })
+
+    // Current load
+    const devCurrentItems = currentItems.filter(i => {
+      try { return (JSON.parse(i.assignee_ids) as string[]).includes(dev.name) } catch { return false }
+    })
+    const cap = capacityByDev.get(dev.id)
+    const currentLoad = {
+      assignedSP: Math.round(devCurrentItems.reduce((s, i) => s + (i.effort_story_points ?? 0), 0) * 10) / 10,
+      capacitySP: cap?.capacity_story_points ?? null,
+      assignedItems: devCurrentItems.length,
+    }
+
+    // Cycle time from item_events via actor field
+    const ctRows = db.prepare(`
+      WITH started AS (
+        SELECT item_id, MIN(created_at) AS started_at FROM item_events
+        WHERE event_type = 'status_changed' AND new_value = 'in-progress' AND actor = ?
+        GROUP BY item_id
+      ),
+      finished AS (
+        SELECT item_id, MIN(created_at) AS done_at FROM item_events
+        WHERE event_type = 'status_changed' AND new_value = 'done' AND actor = ?
+        GROUP BY item_id
+      )
+      SELECT ROUND((JULIANDAY(f.done_at) - JULIANDAY(s.started_at)) * 24, 1) AS ct
+      FROM started s JOIN finished f ON f.item_id = s.item_id
+      WHERE f.done_at > s.started_at
+    `).all(dev.name, dev.name) as Array<{ ct: number }>
+    const avgCycleTimeHours = ctRows.length
+      ? Math.round(ctRows.reduce((s, r) => s + r.ct, 0) / ctRows.length * 10) / 10
+      : null
+
+    // Activity heatmap
+    const devEvents = heatmapEvents.filter(e => e.actor === dev.name)
+    const activityHeatmap = weekStarts.map(weekStart => {
+      const weekEnd = new Date(weekStart)
+      weekEnd.setDate(weekEnd.getDate() + 7)
+      const weekEndStr = weekEnd.toISOString().slice(0, 10)
+      const closedItems = devEvents.filter(e => e.created_at >= weekStart && e.created_at < weekEndStr).length
+      return { weekStart, closedItems }
+    })
+
+    return { id: dev.id, name: dev.name, throughput, avgCycleTimeHours, currentLoad, activityHeatmap }
+  })
+
+  res.json({ sprintId: effectiveSprintId ?? null, developers: result })
+})

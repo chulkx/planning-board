@@ -14,6 +14,9 @@ import { milestonesRouter } from './routes/milestones.js'
 import { configRouter } from './routes/config.js'
 import { reportsRouter } from './routes/reports.js'
 import { savedViewsRouter } from './routes/savedViews.js'
+import { labelsRouter, itemLabelsRouter } from './routes/labels.js'
+import { linksRouter } from './routes/links.js'
+import { commentsRouter } from './routes/comments.js'
 import { runSnapshotJob } from './services/snapshotService.js'
 import { authRouter } from './routes/auth.js'
 import { authenticateToken } from './middleware/auth.js'
@@ -39,6 +42,10 @@ app.use('/api/v1/milestones',    authenticateToken, milestonesRouter)
 app.use('/api/v1/config',        authenticateToken, configRouter)
 app.use('/api/v1/reports',       authenticateToken, reportsRouter)
 app.use('/api/v1/saved-views',   authenticateToken, savedViewsRouter)
+app.use('/api/v1/labels',        authenticateToken, labelsRouter)
+app.use('/api/v1/backlog-items/:itemId/labels',   authenticateToken, itemLabelsRouter)
+app.use('/api/v1/backlog-items/:itemId/links',    authenticateToken, linksRouter)
+app.use('/api/v1/backlog-items/:itemId/comments', authenticateToken, commentsRouter)
 
 app.get('/api/v1/health', (_req, res) => {
   res.json({

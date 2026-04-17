@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getMilestones, createMilestone, getBacklogItems, patchBacklogItem, getProducts } from '@/api/client'
 import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
@@ -8,6 +9,7 @@ import { STATUS_CONFIG } from '@/domain/enums'
 
 export default function MilestonesScreen() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const { data: milestones = [], isLoading: l1 }= useQuery({ queryKey: QUERY_KEYS.milestones,   queryFn: getMilestones,   staleTime: STALE_TIMES.milestones })
   const { data: items = [], isLoading: l2 }     = useQuery({ queryKey: QUERY_KEYS.backlogItems, queryFn: () => getBacklogItems(), staleTime: STALE_TIMES.backlogItems })
   const { data: products = [] }                 = useQuery({ queryKey: QUERY_KEYS.products,     queryFn: getProducts,     staleTime: STALE_TIMES.products })
@@ -136,33 +138,39 @@ export default function MilestonesScreen() {
                 const mDone = mItems.filter((i) => i.status === 'done').length
                 const pct = mItems.length > 0 ? Math.round((mDone / mItems.length) * 100) : 0
                 return (
-                  <button
-                    key={m.id}
-                    onClick={() => setSelectedId(m.id)}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                      selectedId === m.id
-                        ? 'bg-amber-50 text-amber-800 font-medium'
-                        : 'hover:bg-slate-100 text-slate-600'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium truncate">{m.name}</span>
-                      <span className="text-xs text-slate-400 shrink-0 ml-2">{pct}%</span>
-                    </div>
-                    {m.targetDate && (
-                      <div className="text-xs text-slate-400">
-                        Meta: {new Date(m.targetDate).toLocaleDateString('es-AR')}
+                  <div key={m.id} className="flex items-start gap-1">
+                    <button
+                      onClick={() => setSelectedId(m.id)}
+                      className={`flex-1 text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                        selectedId === m.id
+                          ? 'bg-amber-50 text-amber-800 font-medium'
+                          : 'hover:bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="font-medium truncate">{m.name}</span>
+                        <span className="text-xs text-slate-400 shrink-0 ml-2">{pct}%</span>
                       </div>
-                    )}
-                    {mItems.length > 0 && (
-                      <div className="mt-1.5 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-amber-400 rounded-full"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    )}
-                  </button>
+                      {m.targetDate && (
+                        <div className="text-xs text-slate-400">
+                          Meta: {new Date(m.targetDate).toLocaleDateString('es-AR')}
+                        </div>
+                      )}
+                      {mItems.length > 0 && (
+                        <div className="mt-1.5 h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-amber-400 rounded-full"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => navigate(`/milestones/${m.id}`)}
+                      className="text-xs text-indigo-500 hover:text-indigo-700 px-1 pt-3 shrink-0"
+                      title="Ver dashboard"
+                    >↗</button>
+                  </div>
                 )
               })
             )}

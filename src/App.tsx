@@ -9,6 +9,7 @@ import BacklogScreen from '@/features/backlog/BacklogScreen'
 import BoardScreen from '@/features/board/BoardScreen'
 import SprintPlanningScreen from '@/features/sprint/SprintPlanningScreen'
 import MilestonesScreen from '@/features/milestones/MilestonesScreen'
+import MilestoneDetailScreen from '@/features/milestones/MilestoneDetailScreen'
 import SettingsScreen from '@/features/settings/SettingsScreen'
 import AnalyticsScreen from '@/features/analytics/AnalyticsScreen'
 
@@ -103,6 +104,7 @@ function AppShell({ dark, toggleTheme }: { dark: boolean; toggleTheme: () => voi
           <Route path="/board" element={<BoardScreen />} />
           <Route path="/sprints" element={<SprintPlanningScreen />} />
           <Route path="/milestones" element={<MilestonesScreen />} />
+          <Route path="/milestones/:id" element={<MilestoneDetailScreen />} />
           <Route path="/analytics" element={<AnalyticsScreen />} />
           <Route path="/import" element={<ImportScreen />} />
           <Route path="/settings" element={<SettingsScreen />} />

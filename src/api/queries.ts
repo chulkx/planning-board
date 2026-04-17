@@ -21,6 +21,12 @@ export const QUERY_KEYS = {
   wipAging:    ['wip-aging'] as const,
   teamLoad:    (sprintId?: string) => ['team-load', sprintId ?? 'active'] as const,
   estimationAccuracy: (productId?: string) => ['estimation-accuracy', productId ?? 'all'] as const,
+  labels:          ['labels'] as const,
+  itemLabels:      (itemId: string) => ['item-labels', itemId] as const,
+  itemLinks:       (itemId: string) => ['item-links', itemId] as const,
+  itemComments:    (itemId: string) => ['item-comments', itemId] as const,
+  milestoneStats:  (milestoneId: string) => ['milestone-stats', milestoneId] as const,
+  developerStats:  (sprintId?: string) => ['developer-stats', sprintId ?? 'active'] as const,
 }
 
 export const STALE_TIMES = {
@@ -43,4 +49,10 @@ export const STALE_TIMES = {
   wipAging: 60_000,
   teamLoad: 60_000,
   estimationAccuracy: 5 * 60_000,
+  labels: 5 * 60_000,
+  itemLabels: 30_000,
+  itemLinks: 30_000,
+  itemComments: 30_000,
+  milestoneStats: 60_000,
+  developerStats: 2 * 60_000,
 }

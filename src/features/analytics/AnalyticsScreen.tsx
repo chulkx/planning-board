@@ -3,11 +3,12 @@ import { useQuery } from '@tanstack/react-query'
 import {
   getCycleTime, getThroughput, getWipAging, getTeamLoad,
   getEstimationAccuracy, getProducts, getSprints, getRetrospective,
+  getDeveloperStats,
 } from '@/api/client'
 import { QUERY_KEYS, STALE_TIMES } from '@/api/queries'
 import { STATUS_CONFIG, PRIORITY_CONFIG } from '@/domain/enums'
 
-type Tab = 'flow' | 'team' | 'estimation' | 'retro'
+type Tab = 'flow' | 'team' | 'estimation' | 'retro' | 'devs'
 
 export default function AnalyticsScreen() {
   const [tab, setTab] = useState<Tab>('flow')
@@ -20,6 +21,7 @@ export default function AnalyticsScreen() {
     { id: 'team',       label: 'Equipo' },
     { id: 'estimation', label: 'Estimaciones' },
     { id: 'retro',      label: 'Retrospectivas' },
+    { id: 'devs',       label: 'Devs' },
   ]
 
   return (
@@ -57,6 +59,7 @@ export default function AnalyticsScreen() {
       {tab === 'team'       && <TeamTab productId={productId || undefined} />}
       {tab === 'estimation' && <EstimationTab productId={productId || undefined} />}
       {tab === 'retro'      && <RetroTab />}
+      {tab === 'devs'       && <DevsTab />}
     </div>
   )
 }
@@ -437,6 +440,153 @@ function LoadingRows() {
       {[1, 2, 3].map(i => (
         <div key={i} className="h-6 rounded bg-muted animate-pulse" style={{ width: `${60 + i * 10}%` }} />
       ))}
+    </div>
+  )
+}
+
+// ─── Devs Tab ─────────────────────────────────────────────────────────────────
+
+function DevsTab() {
+  const { data, isLoading } = useQuery({
+    queryKey: QUERY_KEYS.developerStats(),
+    queryFn: () => getDeveloperStats(),
+    staleTime: STALE_TIMES.developerStats,
+  })
+
+  if (isLoading) return <LoadingRows />
+  if (!data || data.developers.length === 0) {
+    return <p className="text-sm text-muted-foreground py-8 text-center">Sin datos de desarrolladores</p>
+  }
+
+  const maxHeatmap = Math.max(1, ...data.developers.flatMap(d => d.activityHeatmap.map(w => w.closedItems)))
+
+  return (
+    <div className="space-y-8">
+      {/* Current load table */}
+      <section>
+        <h2 className="text-base font-semibold mb-3">Carga actual (sprint activo)</h2>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-xs text-slate-500">
+                <th className="text-left py-2 font-medium">Developer</th>
+                <th className="text-right py-2 font-medium">SP asignados</th>
+                <th className="text-right py-2 font-medium">Capacidad SP</th>
+                <th className="text-left py-2 font-medium w-40">Carga</th>
+                <th className="text-right py-2 font-medium">Ítems</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.developers.map(dev => {
+                const pct = dev.currentLoad.capacitySP && dev.currentLoad.capacitySP > 0
+                  ? Math.min(100, Math.round((dev.currentLoad.assignedSP / dev.currentLoad.capacitySP) * 100))
+                  : null
+                const color = pct == null ? 'bg-slate-200' : pct > 90 ? 'bg-red-500' : pct > 70 ? 'bg-amber-400' : 'bg-green-500'
+                return (
+                  <tr key={dev.id} className="border-b last:border-b-0 hover:bg-slate-50">
+                    <td className="py-2 font-medium">{dev.name}</td>
+                    <td className="py-2 text-right">{dev.currentLoad.assignedSP}</td>
+                    <td className="py-2 text-right text-slate-400">{dev.currentLoad.capacitySP ?? '—'}</td>
+                    <td className="py-2 px-2">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${color}`} style={{ width: `${pct ?? 0}%` }} />
+                        </div>
+                        <span className="text-xs text-slate-400 w-8 text-right">{pct != null ? `${pct}%` : '—'}</span>
+                      </div>
+                    </td>
+                    <td className="py-2 text-right text-slate-500">{dev.currentLoad.assignedItems}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* Throughput per dev */}
+      {data.developers.some(d => d.throughput.some(t => t.completed > 0)) && (
+        <section>
+          <h2 className="text-base font-semibold mb-3">Throughput por dev (últimos sprints)</h2>
+          <div className="space-y-3">
+            {data.developers.map(dev => {
+              const maxCompleted = Math.max(1, ...dev.throughput.map(t => t.completed))
+              return (
+                <div key={dev.id}>
+                  <p className="text-xs font-medium text-slate-600 mb-1">{dev.name}</p>
+                  <div className="flex gap-1 items-end h-12">
+                    {dev.throughput.map((t, i) => (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+                        <span className="text-xs text-slate-400">{t.completed}</span>
+                        <div
+                          className="w-full bg-indigo-400 rounded-t"
+                          style={{ height: `${Math.max(4, (t.completed / maxCompleted) * 36)}px` }}
+                          title={t.sprintName}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Cycle time */}
+      <section>
+        <h2 className="text-base font-semibold mb-3">Cycle time promedio por dev</h2>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-xs text-slate-500">
+              <th className="text-left py-2 font-medium">Developer</th>
+              <th className="text-right py-2 font-medium">Promedio (hs)</th>
+              <th className="text-right py-2 font-medium">Promedio (días)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.developers.map(dev => (
+              <tr key={dev.id} className="border-b last:border-b-0">
+                <td className="py-2">{dev.name}</td>
+                <td className="py-2 text-right">{dev.avgCycleTimeHours != null ? dev.avgCycleTimeHours : '—'}</td>
+                <td className="py-2 text-right text-slate-400">
+                  {dev.avgCycleTimeHours != null ? (dev.avgCycleTimeHours / 24).toFixed(1) : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      {/* Activity heatmap */}
+      <section>
+        <h2 className="text-base font-semibold mb-3">Actividad — ítems cerrados por semana</h2>
+        <div className="space-y-3">
+          {data.developers.map(dev => (
+            <div key={dev.id} className="flex items-center gap-3">
+              <span className="text-xs text-slate-600 w-24 shrink-0 truncate">{dev.name}</span>
+              <div className="flex gap-1">
+                {dev.activityHeatmap.map((w, i) => {
+                  const intensity = w.closedItems / maxHeatmap
+                  const opacity = w.closedItems === 0 ? 0.05 : 0.15 + intensity * 0.85
+                  return (
+                    <div
+                      key={i}
+                      className="w-4 h-4 rounded-sm bg-indigo-600 cursor-default"
+                      style={{ opacity }}
+                      title={`${w.weekStart}: ${w.closedItems} cerrados`}
+                    />
+                  )
+                })}
+              </div>
+              <span className="text-xs text-slate-400">
+                {dev.activityHeatmap.reduce((s, w) => s + w.closedItems, 0)} total
+              </span>
+            </div>
+          ))}
+          <p className="text-xs text-slate-400">Últimas 12 semanas</p>
+        </div>
+      </section>
     </div>
   )
 }
